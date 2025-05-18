@@ -1,0 +1,32 @@
+# Milestone Requirements
+
+Your milestone report should be a one-page document that showcases the completion of the initial implementation in section 1.
+
+This entails validating the data loading, implementation, and evaluation RL Fine-Tuning of Language Models of the algorithms referenced in section 1.
+
+Think about what metrics would be useful to present here when evaluating on the two tasks.
+
+In your report, you are required to show the quantiative and qualitative performance of your policy,
+effectively reporting the quantitative metrics against the relevant baselines.
+
+Finally, submit your initial
+checkpoints for SFT, DPO, and RLOO to the leaderboard for both the Countdown an
+
+## Data Loading and Construction
+
+**Preference Datasets**
+* [ ] SmolTok (dataset for SFT)
+* [ ] UltraFeedback (dataset for DPO and RLOO)
+
+**Verifier-Based Datasets**
+* [ ] WarmStart Dataset (SFT)
+* [ ] On-Policy Preference Dataset (DPO)
+* [ ] Prompts Dataset (RLOO)
+
+## Method Implementation
+**Supervised Fine-Tuning (SFT)**
+* [ ] SFT Model
+* [ ] DPO Model
+* [ ] RLOO Model
+
+## Evaluation Setup
