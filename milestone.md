@@ -9,8 +9,8 @@ Think about what metrics would be useful to present here when evaluating on the 
 In your report, you are required to show the quantiative and qualitative performance of your policy,
 effectively reporting the quantitative metrics against the relevant baselines.
 
-Finally, submit your initial
-checkpoints for SFT, DPO, and RLOO to the leaderboard for both the Countdown an
+Finally, submit your initial checkpoints for SFT, DPO, and RLOO to the leaderboard for both the Countdown and Ultrafeedback
+tasks (anonymously if you wish) and share your unique id in the report for review.
 
 ## Data Loading and Construction
 
@@ -24,7 +24,6 @@ checkpoints for SFT, DPO, and RLOO to the leaderboard for both the Countdown an
 * [ ] Prompts Dataset (RLOO)
 
 ## Method Implementation
-**Supervised Fine-Tuning (SFT)**
 * [ ] SFT Model
 * [ ] DPO Model
 * [ ] RLOO Model
