@@ -23,8 +23,8 @@ Finally, submit your initial checkpoints for SFT, DPO, and RLOO to the leaderboa
 * [ ] Prompts Dataset (RLOO)
 
 ## Method Implementation
-* [ ] SFT Model
-* [ ] DPO Model
-* [ ] RLOO Model
+* [ ] SFT Model - Malisha
+* [ ] DPO Model - Pooja
+* [ ] RLOO Model - Marielle
 
 ## Evaluation Setup
