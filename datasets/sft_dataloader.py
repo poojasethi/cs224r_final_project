@@ -121,6 +121,12 @@ def get_warmstart_dataloader(split: str = "train[:1%]", batch_size: int = 8):
     """
     raise NotImplementedError()
 
+# TODO(malisha): Test WarmStart dataloader.
+def test_warmstart_dataloader():
+    """
+    Instantiates the WarmStart dataloader and iterates through one batch for testing.
+    """
+    raise NotImplementedError()
 
 if __name__ == "__main__":
     test_smoltok_dataloader()
