@@ -11,13 +11,11 @@ logger = logging.getLogger(__name__)
 
 MAX_PROMPT_LENGTH = 256
 MAX_RESPONSE_LENGTH = 1024
-
 MAX_LENGTH = MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH
 
 """
 Datasets for preference learning task.
 """
-
 class SmolTalkDataset(Dataset):
     """
     SmolTalk dataset for SFT.
@@ -45,11 +43,34 @@ class SmolTalkDataset(Dataset):
             Tokenizes a batch of examples for SFT.
             """
             # Format the text for SFT fine-tuning.
-
-            # TODO: Consider truncating the chat to be at most 2 in length (one user + one assistant).
+            # review; truncate the chat to be at most 2 in length (one user + one assistant).
+            truncated_messages = []
+            for messages in examples["messages"]:
+                #keep only last user message and assistant response (max 2 messages)
+                if len(messages) > 2:
+                    #find the last user message and corresponding assistant response
+                    user_msg = None
+                    assistant_msg = None
+                    #go through messages in reverse to find the last user-assistant pair
+                    for msg in reversed(messages):
+                        if msg["role"] == "assistant" and assistant_msg is None:
+                            assistant_msg = msg
+                        elif msg["role"] == "user" and user_msg is None and assistant_msg is not None:
+                            user_msg = msg
+                            break
+                    #if both found, use them; otherwise use the original messages
+                    if user_msg and assistant_msg:
+                        truncated_messages.append([user_msg, assistant_msg])
+                    else:
+                        truncated_messages.append(messages[-2:] if len(messages) >= 2 else messages)
+                else:
+                    truncated_messages.append(messages)
+            
+            #use chat template to truncated messages
             texts = self.tokenizer.apply_chat_template(
-                examples["messages"], tokenize=False
+                truncated_messages, tokenize=False
             )
+    
             tokenized = self.tokenizer(
                 texts,
                 padding="max_length",
@@ -57,25 +78,94 @@ class SmolTalkDataset(Dataset):
                 max_length=max_length,
                 return_tensors="pt",
             )
+            
+            #create labels for SFT training
             tokenized["labels"] = tokenized["input_ids"].clone()
             return tokenized
 
-        # TODO: Mask out the query tokens.
+        def mask_query_tokens(examples: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+            """
+            Mask out the query tokens so that loss is only computed on assistant responses
+            """
+            input_ids = examples["input_ids"]
+            labels = examples["labels"]
+            
+            for i in range(len(input_ids)):
+                current_input_ids = input_ids[i]
+                current_labels = labels[i]
+                #convert to list for easier processing
+                tokens = current_input_ids.tolist()
+                #find where assistant response starts
+
+                assistant_start_idx = None
+                #Method 1: Look for Qwen's chat template markers
+                decoded = self.tokenizer.decode(current_input_ids, skip_special_tokens=False)
+                assistant_marker = "<|im_start|>assistant"
+                if assistant_marker in decoded:
+                    # Find the position after the assistant marker
+                    marker_pos = decoded.find(assistant_marker)
+                    if marker_pos != -1:
+                        #get text up to and including the marker
+                        prefix = decoded[:marker_pos + len(assistant_marker)]
+                        #add newline if it's typically there
+                        if decoded[marker_pos + len(assistant_marker):marker_pos + len(assistant_marker) + 1] == '\n':
+                            prefix += '\n'
+                        #encode prefix to find where assistant content starts
+                        prefix_tokens = self.tokenizer.encode(prefix, add_special_tokens=False)
+                        assistant_start_idx = len(prefix_tokens)
+                
+                #second method: if assistant marker not found
+                if assistant_start_idx is None:
+                    #look for "assistant" token sequence
+                    assistant_token = self.tokenizer.encode("assistant", add_special_tokens=False)
+                    if assistant_token:
+                        for j in range(len(tokens) - len(assistant_token) + 1):
+                            if tokens[j:j+len(assistant_token)] == assistant_token:
+                                assistant_start_idx = j + len(assistant_token)
+                                #skip any formatting tokens after "assistant"
+                                while (assistant_start_idx < len(tokens) and 
+                                    tokens[assistant_start_idx] in [self.tokenizer.pad_token_id, 
+                                                                    self.tokenizer.eos_token_id]):
+                                    assistant_start_idx += 1
+                                break
+                #if assistant start found, mask everything before it
+                if assistant_start_idx is not None and assistant_start_idx < len(current_labels):
+                    current_labels[:assistant_start_idx] = -100
+                else:
+                    #mask first half
+                    mask_length = len(current_labels) // 2
+                    current_labels[:mask_length] = -100
+                #mask padding tokens
+                current_labels[current_input_ids == self.tokenizer.pad_token_id] = -100
+                labels[i] = current_labels
+            examples["labels"] = labels
+            return examples
+        #apply processing steps in sequence
         output_cols = ["input_ids", "attention_mask", "labels"]
-        smoltalk_tokenized_dataset = dataset.map(
+        
+        #first tokenize data
+        tokenized_dataset = dataset.map(
             tokenize_sft,
-            batched=True,  # Process in batches for efficiency
+            batched=True,
             remove_columns=[
-                col
-                for col in dataset.column_names
+                col for col in dataset.column_names 
                 if col not in output_cols
             ],
             desc="Tokenizing SmolTalk dataset",
         )
-        smoltalk_tokenized_dataset.set_format(
+        
+        #then apply masking to the tokenized data
+        masked_dataset = tokenized_dataset.map(
+            mask_query_tokens,
+            batched=True,
+            desc="Masking query tokens",
+        )
+        
+        masked_dataset.set_format(
             type="torch", columns=output_cols
         )
-        return smoltalk_tokenized_dataset
+        
+        return masked_dataset
 
     def __len__(self):
         return len(self.dataset)
