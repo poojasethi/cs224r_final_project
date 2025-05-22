@@ -29,7 +29,7 @@ Finally, submit your initial checkpoints for SFT, DPO, and RLOO to the leaderboa
 
 ## Evaluation Setup
 
-## Project Deliverables
+## Milestone Deliverables
 1. Verifier-Based Task
     a. SFT on the CogBehave dataset using Qwen2.5-0.5B. Win rate Evaluation is still on Countdown!
     b. DPO on the Countdown dataset using the SFT model checkpoint.
@@ -41,4 +41,3 @@ Finally, submit your initial checkpoints for SFT, DPO, and RLOO to the leaderboa
     c. Reward Model on the UltraFeedback dataset using Qwen2.5-0.5B.
     c. RLOO on the UltraFeedback dataset using the SFT model checkpoint.
 
-## Project Extension
