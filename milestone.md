@@ -28,3 +28,17 @@ Finally, submit your initial checkpoints for SFT, DPO, and RLOO to the leaderboa
 * [ ] RLOO Model - Marielle
 
 ## Evaluation Setup
+
+## Project Deliverables
+1. Verifier-Based Task
+    a. SFT on the CogBehave dataset using Qwen2.5-0.5B. Win rate Evaluation is still on Countdown!
+    b. DPO on the Countdown dataset using the SFT model checkpoint.
+    c. Reward Model on the Countdown dataset using Qwen2.5-0.5B.
+    d. RLOO on the Countdown dataset using the SFT model checkpoint.
+2. Preference Task
+    a. SFT on the SmolTalk dataset using Qwen2.5-0.5B. Win rate Evaluation is still on Ultrafeedback!
+    b. DPO on the UltraFeedback dataset using the SFT model checkpoint.
+    c. Reward Model on the UltraFeedback dataset using Qwen2.5-0.5B.
+    c. RLOO on the UltraFeedback dataset using the SFT model checkpoint.
+
+## Project Extension

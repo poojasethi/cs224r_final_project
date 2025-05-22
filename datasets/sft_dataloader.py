@@ -1,14 +1,24 @@
-import torch
-import sys
-from torch.utils.data import Dataset, DataLoader
-from datasets import load_dataset
-from typing import Dict, List
-from utils import get_tokenizer, HFDatasetWrapper
 import logging
+import sys
+from typing import Dict, List
+
+import torch
+from datasets import load_dataset
+from torch.utils.data import DataLoader, Dataset
+from utils import get_tokenizer, HFDatasetWrapper
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(sys.stdout))
+
+"""
+Note: This is an old file! Please see the new ones instead.
+
+* Preference Data: preference_datasets.py
+* Verifier Data: verifier_datasets.py
+* Test out the dataloaders: test_dataloaders.py
+"""
+
 
 def tokenize_sft(
     examples: Dict[str, List], max_length: int = 1024
@@ -18,7 +28,7 @@ def tokenize_sft(
     """
     tokenizer = get_tokenizer("Qwen/Qwen2.5-0.5B")
 
-    # Format the text for SFT fine-tuning. 
+    # Format the text for SFT fine-tuning.
     texts = tokenizer.apply_chat_template(examples["messages"], tokenize=False)
     tokenized = tokenizer(
         texts,
@@ -27,8 +37,6 @@ def tokenize_sft(
         max_length=max_length,
         return_tensors="pt",
     )
-
-    # For causal language modeling (SFT), the labels are typically the next tokens of the input sequence.
     tokenized["labels"] = tokenized["input_ids"].clone()
     return tokenized
 
@@ -42,7 +50,6 @@ def get_smoltok_dataset(split: str):
     logger.info(
         "SmolTok dataset loaded successfully with %s examples.", len(smoltok_dataset)
     )
-    logger.info("Original dataset columns: %s", smoltok_dataset.column_names)
 
     logger.info("Applying tokenization...")
     smoltok_tokenized_dataset = smoltok_dataset.map(
@@ -58,8 +65,11 @@ def get_smoltok_dataset(split: str):
     logger.info("Tokenized dataset columns: %s", smoltok_tokenized_dataset.column_names)
     logger.info("First tokenized example: %s", smoltok_tokenized_dataset[0])
 
-    smoltok_tokenized_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask', 'labels'])
+    smoltok_tokenized_dataset.set_format(
+        type="torch", columns=["input_ids", "attention_mask", "labels"]
+    )
     return smoltok_tokenized_dataset
+
 
 def get_smoltok_dataloader(
     split: str = "train[:1%]",
@@ -100,7 +110,9 @@ def test_smoltok_dataloader():
             logger.info("Attention Mask shape: %s", batch["attention_mask"].shape)
             logger.info("Labels shape: %s", batch["labels"].shape)
             # Decode a sample to check
-            logger.info(f"Decoded Input IDs (first item): {tokenizer.decode(batch['input_ids'][0], skip_special_tokens=True)}")
+            logger.info(
+                f"Decoded Input IDs (first item): {tokenizer.decode(batch['input_ids'][0], skip_special_tokens=True)}"
+            )
             break  # Just show the first batch
     except Exception as e:
         logger.warning(f"Error iterating through SmolTok DataLoader: {e}")
@@ -121,12 +133,14 @@ def get_warmstart_dataloader(split: str = "train[:1%]", batch_size: int = 8):
     """
     raise NotImplementedError()
 
+
 # TODO(malisha): Test WarmStart dataloader.
 def test_warmstart_dataloader():
     """
     Instantiates the WarmStart dataloader and iterates through one batch for testing.
     """
     raise NotImplementedError()
+
 
 if __name__ == "__main__":
     test_smoltok_dataloader()
