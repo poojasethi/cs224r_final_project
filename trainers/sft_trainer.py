@@ -4,6 +4,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 from accelerate import Accelerator
 from tqdm.auto import tqdm
 import wandb
+from trl import SFTTrainer
 
 @dataclass
 class TrainingArguments:

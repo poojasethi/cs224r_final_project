@@ -45,6 +45,8 @@ class SmolTokDataset(Dataset):
             Tokenizes a batch of examples for SFT.
             """
             # Format the text for SFT fine-tuning.
+
+            # TODO: Consider truncating the chat to be at most 2 in length (one user + one assistant).
             texts = self.tokenizer.apply_chat_template(
                 examples["messages"], tokenize=False
             )
@@ -58,6 +60,7 @@ class SmolTokDataset(Dataset):
             tokenized["labels"] = tokenized["input_ids"].clone()
             return tokenized
 
+        # TODO: Mask out the query tokens.
         output_cols = ["input_ids", "attention_mask", "labels"]
         smoltok_tokenized_dataset = dataset.map(
             tokenize_sft,
