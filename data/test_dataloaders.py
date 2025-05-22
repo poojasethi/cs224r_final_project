@@ -1,4 +1,4 @@
-from data.preference_datasets import SmolTokDataset
+from data.preference_datasets import SmolTalkDataset
 from torch.utils.data import DataLoader
 import logging
 import sys
@@ -17,8 +17,8 @@ def get_dataloader(
     Creates the SmolTok dataloader.
     """
     dataset = None
-    if dataset_name == "smoltok":
-        dataset = SmolTokDataset(split=split)
+    if dataset_name == "smoltalk":
+        dataset = SmolTalkDataset(split=split)
     else:
         raise ValueError(f"Unrecognized dataset {dataset_name}")
 
@@ -42,7 +42,7 @@ def test_smoltok_dataloader():
     """
     Instantiates the SmolTok dataloader and iterates through one batch for testing.
     """
-    smoltok_dataloader = get_dataloader("smoltok")
+    smoltok_dataloader = get_dataloader("smoltalk")
     tokenizer = get_tokenizer("Qwen/Qwen2.5-0.5B")
     logger.info("\nExample batch from SmolTok DataLoader:")
     try:

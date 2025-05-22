@@ -18,9 +18,9 @@ MAX_LENGTH = MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH
 Datasets for preference learning task.
 """
 
-class SmolTokDataset(Dataset):
+class SmolTalkDataset(Dataset):
     """
-    SmolTok dataset for SFT.
+    SmolTalk dataset for SFT.
     """
     def __init__(
         self,
@@ -62,7 +62,7 @@ class SmolTokDataset(Dataset):
 
         # TODO: Mask out the query tokens.
         output_cols = ["input_ids", "attention_mask", "labels"]
-        smoltok_tokenized_dataset = dataset.map(
+        smoltalk_tokenized_dataset = dataset.map(
             tokenize_sft,
             batched=True,  # Process in batches for efficiency
             remove_columns=[
@@ -70,12 +70,12 @@ class SmolTokDataset(Dataset):
                 for col in dataset.column_names
                 if col not in output_cols
             ],
-            desc="Tokenizing SmolTok dataset",
+            desc="Tokenizing SmolTalk dataset",
         )
-        smoltok_tokenized_dataset.set_format(
+        smoltalk_tokenized_dataset.set_format(
             type="torch", columns=output_cols
         )
-        return smoltok_tokenized_dataset
+        return smoltalk_tokenized_dataset
 
     def __len__(self):
         return len(self.dataset)

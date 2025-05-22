@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM
 def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
     args = SFTTrainingArguments(
         wandb_project=f"{model_id}-sft",
-        wandb_run="instruction-following-smoltok-sft"
+        wandb_run="instruction-following-smoltalk-sft"
     )
 
     # Initialize the tokenizer and the base model.
