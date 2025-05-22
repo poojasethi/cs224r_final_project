@@ -8,19 +8,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
-def get_smoltok_dataloader(
+def get_dataloader(
+    dataset_name: str,
     split: str = "train[:1%]",
     batch_size: int = 8,
 ):
     """
     Creates the SmolTok dataloader.
     """
-    smoltok_tokenized_dataset = SmolTokDataset()
+    dataset = None
+    if dataset_name == "smoltok":
+        dataset = SmolTokDataset(split=split)
+    else:
+        raise ValueError(f"Unrecognized dataset {dataset_name}")
 
     # Create PyTorch dataloader.
     logger.info("Creating SmolTok DataLoader...")
     smoltok_dataloader = DataLoader(
-        smoltok_tokenized_dataset,
+        dataset,
         batch_size=batch_size,  # Use the defined batch size
         shuffle=True,  # Shuffle data for training
         num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
@@ -37,7 +42,7 @@ def test_smoltok_dataloader():
     """
     Instantiates the SmolTok dataloader and iterates through one batch for testing.
     """
-    smoltok_dataloader = get_smoltok_dataloader()
+    smoltok_dataloader = get_dataloader("smoltok")
     tokenizer = get_tokenizer("Qwen/Qwen2.5-0.5B")
     logger.info("\nExample batch from SmolTok DataLoader:")
     try:
