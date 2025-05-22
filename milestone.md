@@ -18,9 +18,8 @@ Finally, submit your initial checkpoints for SFT, DPO, and RLOO to the leaderboa
 * [ ] UltraFeedback (dataset for DPO and RLOO)
 
 **Verifier-Based Datasets**
-* [ ] WarmStart Dataset (SFT)
-* [ ] On-Policy Preference Dataset (DPO)
-* [ ] Prompts Dataset (RLOO)
+* [ ] CogBehave Dataset (SFT)
+* [ ] CountDown Dataset (DPO & RLOO)
 
 ## Method Implementation
 * [ ] SFT Model - Malisha

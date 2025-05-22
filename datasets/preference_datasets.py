@@ -9,7 +9,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_LENGTH = 1024
+MAX_LENGTH = 512
 
 """
 Datasets for preference learning task.
