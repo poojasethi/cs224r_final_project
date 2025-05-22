@@ -5,7 +5,7 @@ from accelerate import Accelerator
 from tqdm.auto import tqdm
 import wandb
 import logging
-from trl import SFTTrainer
+from dataclasses import dataclass
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

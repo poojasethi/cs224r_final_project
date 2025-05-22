@@ -1,8 +1,8 @@
-from preference_datasets import SmolTokDataset
+from data.preference_datasets import SmolTokDataset
 from torch.utils.data import DataLoader
 import logging
 import sys
-from utils import get_tokenizer
+from data.utils import get_tokenizer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

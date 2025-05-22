@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 from torch.utils.data import Dataset, DataLoader
 import logging
 from typing import Dict
-from datasets import load_dataset, Dataset as HFDataset
+from datasets import load_dataset
 
 logger = logging.getLogger(__name__)
 
