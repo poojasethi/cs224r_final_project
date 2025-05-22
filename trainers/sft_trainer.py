@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SFTTrainingArguments:
+    wandb_project: str
+    wandb_run: str
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 4
     per_device_eval_batch_size: int = 4
@@ -24,8 +26,6 @@ class SFTTrainingArguments:
     fp16: bool = True
     # Use gradient accumulation to effectively increase batch size without increasing memory.
     gradient_accumulation_steps: int = 15 
-    wandb_project: str = "qwen-sft"
-    wandb_run: str = "instruction-following-smoltok-sft"
 
 
 class CustomSFTTrainer:
