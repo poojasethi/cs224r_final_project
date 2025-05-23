@@ -251,12 +251,12 @@ class UltraFeedbackDataset(Dataset):
         dispreferred_a_masks = torch.cat([prompts.attention_mask, rejected.attention_mask], dim=-1)
 
         return {
-            'preferred_ids' = preferred_ids
-            'preferred_a_masks' = preferred_a_masks
-            'dispreferred_ids' = dispreferred_ids
-            'dispreferred_a_masks' = dispreferred_a_masks
-            'score_chosen' = batch['score_chosen']
-            'score_rejected' = batch['score_rejected']
+            'preferred_ids' : preferred_ids,
+            'preferred_a_masks' : preferred_a_masks,
+            'dispreferred_ids' : dispreferred_ids,
+            'dispreferred_a_masks' : dispreferred_a_masks,
+            'score_chosen' : batch['score_chosen'],
+            'score_rejected' : batch['score_rejected'],
         }
 
         # chosen_data = dataset.map(lambda example: {

@@ -13,11 +13,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SFTTrainingArguments:
-    wandb_project: str
-    wandb_run: str
-    epochs: int = 1
+    wandb_project: str = "qwen-sft"
+    wandb_run: str = "instruction-following-smoltalk-sft"
+    model_id: str = "Qwen/Qwen2.5-0.5B"
+    train_split: str = "train"
+    test_split: str = "test"
     train_batch_size: int = 4
     eval_batch_size: int = 4
+    epochs: int = 1
     learning_rate: float = 2e-5
     warmup_steps: int = 0
     logging_steps: int = 10

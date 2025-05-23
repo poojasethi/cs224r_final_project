@@ -2,32 +2,33 @@ from trainers.sft_trainer import CustomSFTTrainer, SFTTrainingArguments
 from data.dataloader_utils import get_dataloader
 from data.utils import get_tokenizer
 from transformers import AutoModelForCausalLM
+import argparse
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
-    args = SFTTrainingArguments(
-        wandb_project=f"qwen-sft",
-        wandb_run="instruction-following-smoltalk-sft"
-    )
+def run_instruction_following_sft(args: SFTTrainingArguments):
+    # Initialize the tokenizer and the base model. 
+    tokenizer = get_tokenizer("Qwen/Qwen2.5-0.5B")
 
-    # Initialize the tokenizer and the base model.
-    tokenizer = get_tokenizer(model_id)
+    logger.info(f"Training model {args.model_id}")
     model = AutoModelForCausalLM.from_pretrained(
-        model_id,
+        args.model_id,
         # load in bfloat16 if hardware support is available, otherwise float32
         torch_dtype="auto",
     )
 
     train_dataloader = get_dataloader(
         dataset_name="smoltalk",
-        split="train[:1%]",  # Note: Using a smaller dataset for debugging.
-        batch_size=args.train_batch_size
+        split=args.train_split,  # Note: Using a smaller dataset for debugging.
+        batch_size=args.train_batch_size,
     )
 
     eval_dataloader = get_dataloader(
         dataset_name="smoltalk",
-        split="test[:1%]",
-        batch_size=args.eval_batch_size
+        split=args.test_split,
+        batch_size=args.eval_batch_size,
     )
 
     trainer = CustomSFTTrainer(
@@ -42,4 +43,24 @@ def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
 
 
 if __name__ == "__main__":
-    run_instruction_following_sft()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--debug", action="store_true", help="Run in debug mode.")
+    args = parser.parse_args()
+
+    if args.debug:
+        # Use a small model and dataset that can run on cpu for debugging locally.
+        experiment_args = SFTTrainingArguments(
+            wandb_project="pythia-sft",
+            wandb_run="instruction-following-smoltalk-sft",
+            model_id="EleutherAI/pythia-70m",
+            train_split="train[:1%]",
+            test_split="test[:1%]"
+        )
+        run_instruction_following_sft(experiment_args)
+    else: 
+        # Kick off a full experiment
+        experiment_args = SFTTrainingArguments(
+            wandb_project="qwen-sft",
+            wandb_run="instruction-following-smoltalk-sft"
+        )
+        run_instruction_following_sft(experiment_args)
