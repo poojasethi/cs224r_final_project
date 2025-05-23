@@ -27,7 +27,7 @@ def test_dataset_dataloader(dataset):
                 logger.info("Labels shape: %s", batch["labels"].shape)
             # Decode a sample to check
             logger.info(
-                f"Decoded Input IDs (first item): {tokenizer.decode(batch['input_ids'][0], skip_special_tokens=True)}"
+                f"Decoded Input IDs (first item in batch): {tokenizer.decode(batch['input_ids'][0], skip_special_tokens=True)}"
             )
             break  # Just show the first batch
     except Exception as e:

@@ -44,7 +44,8 @@ class SmolTalkDataset(Dataset):
             Tokenizes a batch of examples for SFT.
             """
             # Format the text for SFT fine-tuning.
-            # review; truncate the chat to be at most 2 in length (one user + one assistant).
+
+            #truncate the chat to be at most 2 in length (one user + one assistant).
             truncated_messages = []
             for messages in examples["messages"]:
                 #keep only last user message and assistant response (max 2 messages)
@@ -96,9 +97,10 @@ class SmolTalkDataset(Dataset):
                 current_labels = labels[i]
                 #convert to list for easier processing
                 tokens = current_input_ids.tolist()
-                #find where assistant response starts
 
+                #find where assistant response starts
                 assistant_start_idx = None
+                
                 #Method 1: Look for Qwen's chat template markers
                 decoded = self.tokenizer.decode(current_input_ids, skip_special_tokens=False)
                 assistant_marker = "<|im_start|>assistant"
@@ -141,6 +143,7 @@ class SmolTalkDataset(Dataset):
                 labels[i] = current_labels
             examples["labels"] = labels
             return examples
+        
         #apply processing steps in sequence
         output_cols = ["input_ids", "attention_mask", "labels"]
         
@@ -154,24 +157,22 @@ class SmolTalkDataset(Dataset):
             ],
             desc="Tokenizing SmolTalk dataset",
         )
-
         tokenized_dataset.set_format(
             type="torch", columns=output_cols
         )
-        return tokenized_dataset
         
-        # #then apply masking to the tokenized data
-        # masked_dataset = tokenized_dataset.map(
-        #     mask_query_tokens,
-        #     batched=True,
-        #     desc="Masking query tokens",
-        # )
+        #then apply masking to the tokenized data
+        masked_dataset = tokenized_dataset.map(
+            mask_query_tokens,
+            batched=True,
+            desc="Masking query tokens",
+        )
         
-        # masked_dataset.set_format(
-        #     type="torch", columns=output_cols
-        # )
+        masked_dataset.set_format(
+            type="torch", columns=output_cols
+        )
         
-        # return masked_dataset
+        return masked_dataset
 
     def __len__(self):
         return len(self.dataset)
