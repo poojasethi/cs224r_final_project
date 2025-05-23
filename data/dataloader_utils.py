@@ -18,19 +18,28 @@ def get_dataloader(
     dataset = None
     if dataset_name == "smoltalk":
         dataset = SmolTalkDataset(split=split)
+        # Create PyTorch dataloader.
+        logger.info("Creating Smoltalk DataLoader...")
+        dataset_dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,  # Use the defined batch size
+            shuffle=True,  # Shuffle data for training
+            num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
+        )
     elif dataset_name == "ultrafeedback":
         dataset = UltraFeedbackDataset()
+        # Create PyTorch dataloader.
+        logger.info("Creating UltraFeedback DataLoader...")
+        dataset_dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,  # Use the defined batch size
+            shuffle=True,  # Shuffle data for training
+            num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
+            collate_fn=dataset.collate
+        )
+
     else:
         raise ValueError(f"Unrecognized dataset {dataset_name}")
-
-    # Create PyTorch dataloader.
-    logger.info(f"Creating {dataset_name} DataLoader...")
-    dataset_dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,  # Use the defined batch size
-        shuffle=True,  # Shuffle data for training
-        num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
-    )
 
     logger.info(
         f"{dataset_name} DataLoader created successfully with batch size {batch_size}."

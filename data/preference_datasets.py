@@ -3,7 +3,7 @@ import sys
 from torch.utils.data import Dataset
 from datasets import load_dataset
 from typing import Dict, List
-from utils import get_tokenizer
+from data.utils import get_tokenizer
 import logging
 from tqdm.auto import tqdm
 
@@ -201,34 +201,89 @@ class UltraFeedbackDataset(Dataset):
         self.max_length = max_length
 
         # Pre-tokenize all the data so that training is faster.
-        self.dataset = self._tokenize_dataset(self.dataset, max_length)
+        self.collate = partial(self._tokenize_dataset, self.tokenizer, self.max_length)
 
-    def _tokenize_dataset(self, dataset, max_length: int):
+    def _tokenize_dataset(self, batch, tokenizer, max_length: int):     # NOTE: Heavily inspired by https://github.com/0xallam/Direct-Preference-Optimization/blob/main/src/train.py  
         def tokenize_dicts(batch, tokenizer):
             texts = tokenizer.apply_chat_template(batch, tokenize=False)
             return tokenizer(texts, padding='max_length', truncation=True)
 
-        output_cols = [
-            "prompt",
-            "prompt_id",
-            "chosen",
-            "rejected",
-            "messages",
-            "score_chosen",
-            "score_rejected",
-            "input_ids",
-            "attention_mask",
-        ]
+        # output_cols = [
+        #     "prompt",
+        #     "prompt_id",
+        #     "chosen",
+        #     "rejected",
+        #     "messages",
+        #     "score_chosen",
+        #     "score_rejected",
+        #     "input_ids",
+        #     "attention_mask",
+        # ]
         
-        dataset = dataset.map(lambda e: self.tokenizer(e['prompt'], truncation=True, padding='max_length'), batched=True) 
-        dataset = dataset.map(lambda e: self.tokenizer(e['prompt_id'], truncation=True, padding='max_length'), batched=True)
-        dataset = dataset.map(lambda batch: tokenize_dicts(batch['chosen'], self.tokenizer), batched=True)
-        dataset = dataset.map(lambda batch: tokenize_dicts(batch['rejected'], self.tokenizer), batched=True)
-        dataset = dataset.map(lambda batch: tokenize_dicts(batch['messages'], self.tokenizer), batched=True)
-        dataset = dataset.map(lambda batch: self.tokenizer([str(x) for x in batch['score_chosen']], truncation=True, padding='max_length'), batched=True)
-        dataset = dataset.map(lambda batch: self.tokenizer([str(x) for x in batch['score_rejected']], truncation=True, padding='max_length'), batched=True)
-        dataset.set_format(type="torch", columns=output_cols)
-        return dataset
+
+        prompts = tokenizer(
+            ["Prompt: " + elem['prompt'] + '\n' for elem in batch],
+            padding='max_length',
+            truncation=True,
+            max_length=max_length,
+            return_tensors='pt'
+        )
+
+        chosen = tokenizer(
+            [tokenizer.apply_chat_template(elem['chosen'], tokenize=False) for elem in batch],
+            padding='max_length',
+            truncation=True,
+            max_length=max_length,
+            return_tensors='pt'
+        )
+
+        rejected = tokenizer(
+            [tokenizer.apply_chat_template(elem['rejected'], tokenize=False) for elem in batch],
+            padding='max_length',
+            truncation=True,
+            max_length=max_length,
+            return_tensors='pt'
+        )
+
+        preferred_ids = torch.cat([prompts.input_ids, chosen.input_ids], dim=-1)
+        preferred_a_masks = torch.cat([prompts.attention_mask, chosen.attention_mask], dim=-1)
+        dispreferred_ids = torch.cat([prompts.input_ids, rejected.input_ids], dim=-1)
+        dispreferred_a_masks = torch.cat([prompts.attention_mask, rejected.attention_mask], dim=-1)
+
+        return {
+            'preferred_ids' = preferred_ids
+            'preferred_a_masks' = preferred_a_masks
+            'dispreferred_ids' = dispreferred_ids
+            'dispreferred_a_masks' = dispreferred_a_masks
+            'score_chosen' = batch['score_chosen']
+            'score_rejected' = batch['score_rejected']
+        }
+
+        # chosen_data = dataset.map(lambda example: {
+        #     "prompt": example['prompt'],
+        #     "answer": example['chosen'], 
+        #     "score": example['score_chosen']
+        # })
+        # chosen_data = dataset.map(lambda example: {
+        #     "prompt": example['prompt'],
+        #     "prompt_id": example['prompt_id'], 
+        #     "answer": example['chosen'], 
+        #     "messages": example['messages'],
+        #     "score": example['score_chosen']
+        # })
+        # rejected_data = dataset['prompt'] + dataset['prompt_id'] + dataset['rejected'] + dataset['messages'] + dataset['score_rejected']
+
+
+        # dataset = dataset.map(lambda e: self.tokenizer(e['prompt'], truncation=True, padding='max_length'), batched=True) 
+        # dataset = dataset.map(lambda e: self.tokenizer(e['prompt_id'], truncation=True, padding='max_length'), batched=True)
+        # dataset = dataset.map(lambda batch: tokenize_dicts(batch['chosen'], self.tokenizer), batched=True)
+        # dataset = dataset.map(lambda batch: tokenize_dicts(batch['rejected'], self.tokenizer), batched=True)
+        # dataset = dataset.map(lambda batch: tokenize_dicts(batch['messages'], self.tokenizer), batched=True)
+        # dataset = dataset.map(lambda batch: self.tokenizer([str(x) for x in batch['score_chosen']], truncation=True, padding='max_length'), batched=True)
+        # dataset = dataset.map(lambda batch: self.tokenizer([str(x) for x in batch['score_rejected']], truncation=True, padding='max_length'), batched=True)
+        # dataset.set_format(type="torch", columns=output_cols)
+        # return dataset
+
 
     def __len__(self):
         return len(self.dataset)

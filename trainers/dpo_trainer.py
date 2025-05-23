@@ -6,6 +6,7 @@ from tqdm.auto import tqdm
 import wandb
 import logging
 from dataclasses import dataclass
+from trainers.sft_trainer import CustomSFTTrainer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,7 +22,8 @@ class DPOTrainingArguments:
     warmup_steps: int = 0
     logging_steps: int = 10
     eval_steps: int = 100
-    output_dir: str = "./sft_model"
+    sft_output_dir: str = "./sft_model"
+    dpo_output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
     fp16: bool = True
 
@@ -72,11 +74,27 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         # Enable mixed precision training.
         self.scaler = torch.amp.GradScaler("cuda") if self.args.fp16 else None
 
-    def dpo_loss(self, beta, outputs):
-        sft_model = 
+    def dpo_loss(
+        self, 
+        beta, 
+        pref_outputs, 
+        dispref_outputs, 
+        preferred_ids, 
+        preferred_a_masks, 
+        dispreferred_ids, 
+        dispreferred_a_masks):
 
-        losses = pol_los/ref_los
-        wins = pol_win / ref_win
+        sft_model = model.load_state_dict(torch.load(self.args.sft_output_dir))
+        ref_pref_outputs = sft_model.generate(
+            input_ids=dispreferred_ids,
+            attention_mask=dispreferred_a_masks
+        )
+        ref_dispref_outputs = sft_model.generate(
+            input_ids=preferred_ids,
+            attention_mask=preferred_a_masks
+        )
+        wins = pref_outputs / ref_pref_outputs
+        losses = dispref_outputs / ref_dispref_outputs
         inside_sig = beta * torch.log(wins) - beta * torch.log(losses)
         inside_expect = torch.log(torch.sigmoid(inside_sig))
         loss = - inside_expect.mean()
@@ -95,16 +113,26 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
                                 desc=f"Epoch {epoch + 1}/{self.args.epochs}")
 
             for step, batch in enumerate(progress_bar):
-                input_ids = batch["input_ids"].to(self.device)
-                attention_mask = batch["attention_mask"].to(self.device)
+                preferred_ids = batch["preferred_ids"].to(self.device)
+                preferred_a_masks = batch["preferred_a_masks"].to(self.device)
+                dispreferred_ids = batch['dispreferred_ids'].to(self.device)
+                dispreferred_a_masks = batch['dispreferred_a_masks'].to(self.device)
+                score_chosen = batch['score_chosen'].to(self.device)            # TODO: When do I use these?
+                score_rejected = batch['score_rejected'].to(self.device)        # TODO: When do I use these? 
+
                 
                 # 1. Run forward pass (with mixed precision).
                 with torch.amp.autocast("cuda", enabled=self.args.fp16):
                     pref_outputs = self.model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask
+                        input_ids=dispreferred_ids,
+                        attention_mask=dispreferred_a_masks
                     )
-                    loss = dpo_loss(beta, outputs)             # TODO: FIX THIS
+                    dispref_outputs = self.model(
+                        input_ids=preferred_ids,
+                        attention_mask=preferred_a_masks
+                    )
+                    loss = dpo_loss(beta, pref_outputs, dispref_outputs, preferred_ids, 
+                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
 
                 # 2. Run backward pass.
                 if self.scaler:
@@ -153,7 +181,7 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
 
         # Save the final model after training is finished.
         output_dir = os.path.join(
-            self.args.output_dir, f"checkpoint-{global_steps}")
+            self.args.dpo_output_dir, f"checkpoint-{global_steps}")
 
         os.makedirs(output_dir, exist_ok=True)
         self.model.save_pretrained(output_dir)

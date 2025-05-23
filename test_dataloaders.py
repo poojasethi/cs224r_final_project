@@ -1,8 +1,7 @@
-from preference_datasets import SmolTalkDataset, UltraFeedbackDataset
+from data.preference_datasets import SmolTalkDataset, UltraFeedbackDataset
 from torch.utils.data import DataLoader
 import logging
 import sys
-from utils import get_tokenizer
 from data.utils import get_tokenizer
 from data.dataloader_utils import get_dataloader
 
