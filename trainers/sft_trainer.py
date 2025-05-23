@@ -25,6 +25,7 @@ class SFTTrainingArguments:
     warmup_steps: int = 0
     logging_steps: int = 10
     eval_steps: int = 100
+    checkpoint_steps: int = 500
     output_dir: str = "./sft_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
     fp16: bool = True
@@ -153,13 +154,19 @@ class CustomSFTTrainer:
 
                      # Set model back to train mode after doing evaluation.
                     self.model.train() 
+                
+                if global_steps % self.args.checkpoint_steps == 0:
+                    logger.info(f"Saving checkpoint after {global_steps}")
+                    output_dir = os.path.join(self.args.output_dir, f"checkpoint-{global_steps}")
+                    os.makedirs(output_dir, exist_ok=True)
+                    self.model.save_pretrained(output_dir, from_pt=True)
+                    self.tokenizer.save_pretrained(output_dir)
 
         # Save the final model after training is finished.
-        output_dir = os.path.join(
-            self.args.output_dir, f"checkpoint-{global_steps}")
+        output_dir = os.path.join(self.args.output_dir, f"checkpoint-{global_steps}")
 
         os.makedirs(output_dir, exist_ok=True)
-        self.model.save_pretrained(output_dir)
+        self.model.save_pretrained(output_dir, from_pt=True)
         self.tokenizer.save_pretrained(output_dir)
         logger.info(f"\nTraining complete! Model saved to {output_dir}")
         wandb.finish()
