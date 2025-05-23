@@ -61,6 +61,7 @@ if __name__ == "__main__":
         # Kick off a full experiment
         experiment_args = SFTTrainingArguments(
             wandb_project="qwen-sft",
-            wandb_run="instruction-following-smoltalk-sft"
+            wandb_run="instruction-following-smoltalk-sft",
+            test_split="test[:1%]",
         )
         run_instruction_following_sft(experiment_args)
