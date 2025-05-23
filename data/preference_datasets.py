@@ -153,19 +153,24 @@ class SmolTalkDataset(Dataset):
             ],
             desc="Tokenizing SmolTalk dataset",
         )
-        
-        #then apply masking to the tokenized data
-        masked_dataset = tokenized_dataset.map(
-            mask_query_tokens,
-            batched=True,
-            desc="Masking query tokens",
-        )
-        
-        masked_dataset.set_format(
+
+        tokenized_dataset.set_format(
             type="torch", columns=output_cols
         )
+        return tokenized_dataset
         
-        return masked_dataset
+        # #then apply masking to the tokenized data
+        # masked_dataset = tokenized_dataset.map(
+        #     mask_query_tokens,
+        #     batched=True,
+        #     desc="Masking query tokens",
+        # )
+        
+        # masked_dataset.set_format(
+        #     type="torch", columns=output_cols
+        # )
+        
+        # return masked_dataset
 
     def __len__(self):
         return len(self.dataset)

@@ -17,8 +17,8 @@ class SFTTrainingArguments:
     wandb_project: str
     wandb_run: str
     epochs: int = 1
-    train_batch_size: int = 16
-    eval_batch_size: int = 16
+    train_batch_size: int = 4
+    eval_batch_size: int = 4
     learning_rate: float = 2e-5
     warmup_steps: int = 0
     logging_steps: int = 10

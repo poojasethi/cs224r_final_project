@@ -1,5 +1,5 @@
 from trainers.sft_trainer import CustomSFTTrainer, SFTTrainingArguments
-from data.test_dataloaders import get_dataloader
+from data.dataloader_utils import get_dataloader
 from data.utils import get_tokenizer
 from transformers import AutoModelForCausalLM
 
