@@ -1,12 +1,12 @@
 from trainers.sft_trainer import CustomSFTTrainer, SFTTrainingArguments
-from data.test_dataloaders import get_dataloader
+from data.dataloader_utils import get_dataloader
 from data.utils import get_tokenizer
 from transformers import AutoModelForCausalLM
 
 
 def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
     args = SFTTrainingArguments(
-        wandb_project=f"{model_id}-sft",
+        wandb_project=f"qwen-sft",
         wandb_run="instruction-following-smoltalk-sft"
     )
 
@@ -20,12 +20,14 @@ def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
 
     train_dataloader = get_dataloader(
         dataset_name="smoltalk",
-        split="train",
+        split="train[:1%]",  # Note: Using a smaller dataset for debugging.
+        batch_size=args.train_batch_size
     )
 
     eval_dataloader = get_dataloader(
         dataset_name="smoltalk",
-        split="test",
+        split="test[:1%]",
+        batch_size=args.eval_batch_size
     )
 
     trainer = CustomSFTTrainer(
@@ -36,7 +38,7 @@ def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
         args=args,
     )
 
-    # trainer.train()
+    trainer.train()
 
 
 if __name__ == "__main__":

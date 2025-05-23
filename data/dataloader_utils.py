@@ -1,0 +1,37 @@
+from data.preference_datasets import SmolTalkDataset
+from torch.utils.data import DataLoader
+import logging
+import sys
+from data.utils import get_tokenizer
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def get_dataloader(
+    dataset_name: str,
+    split: str = "train[:1%]",
+    batch_size: int = 8,
+):
+    """
+    Creates the SmolTok dataloader.
+    """
+    dataset = None
+    if dataset_name == "smoltalk":
+        dataset = SmolTalkDataset(split=split)
+    else:
+        raise ValueError(f"Unrecognized dataset {dataset_name}")
+
+    # Create PyTorch dataloader.
+    logger.info("Creating SmolTok DataLoader...")
+    smoltok_dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,  # Use the defined batch size
+        shuffle=True,  # Shuffle data for training
+        num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
+    )
+
+    logger.info(
+        f"SmolTok DataLoader created successfully with batch size {batch_size}."
+    )
+    logger.info(f"Number of batches per epoch: {len(smoltok_dataloader)}")
+    return smoltok_dataloader

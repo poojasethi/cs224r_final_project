@@ -3,41 +3,12 @@ from torch.utils.data import DataLoader
 import logging
 import sys
 from utils import get_tokenizer
+from data.utils import get_tokenizer
+from data.dataloader_utils import get_dataloader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(sys.stdout))
-
-def get_dataloader(
-    dataset_name: str,
-    split: str = "train[:1%]", # Note: UltraFeedback requires train_pref or train_sft, etc
-    batch_size: int = 8,
-):
-    """
-    Creates the SmolTok dataloader.
-    """
-    dataset = None
-    if dataset_name == "smoltalk":
-        dataset = SmolTalkDataset(split=split)
-    elif dataset_name == "ultrafeedback":
-        dataset = UltraFeedbackDataset()
-    else:
-        raise ValueError(f"Unrecognized dataset {dataset_name}")
-
-    # Create PyTorch dataloader.
-    logger.info(f"Creating {dataset_name} DataLoader...")
-    dataset_dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,  # Use the defined batch size
-        shuffle=True,  # Shuffle data for training
-        num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
-    )
-
-    logger.info(
-        f"{dataset_name} DataLoader created successfully with batch size {batch_size}."
-    )
-    logger.info(f"Number of batches per epoch: {len(dataset_dataloader)}")
-    return dataset_dataloader
 
 
 def test_dataset_dataloader(dataset):

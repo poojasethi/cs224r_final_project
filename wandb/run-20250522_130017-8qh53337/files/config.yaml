@@ -1,0 +1,57 @@
+_wandb:
+    value:
+        cli_version: 0.19.11
+        m: []
+        python_version: 3.12.10
+        t:
+            "1":
+                - 1
+                - 11
+                - 49
+                - 51
+                - 55
+                - 71
+            "2":
+                - 1
+                - 11
+                - 49
+                - 51
+                - 55
+                - 71
+            "3":
+                - 1
+                - 13
+                - 16
+                - 23
+                - 55
+            "4": 3.12.10
+            "5": 0.19.11
+            "6": 4.52.3
+            "8":
+                - 5
+            "12": 0.19.11
+            "13": darwin-arm64
+eval_steps:
+    value: 100
+fp16:
+    value: true
+gradient_accumulation_steps:
+    value: 15
+learning_rate:
+    value: 2e-05
+logging_steps:
+    value: 10
+num_train_epochs:
+    value: 3
+output_dir:
+    value: ./sft_model
+per_device_eval_batch_size:
+    value: 4
+per_device_train_batch_size:
+    value: 4
+wandb_project:
+    value: qwen-sft
+wandb_run:
+    value: instruction-following-smoltalk-sft
+warmup_steps:
+    value: 0
