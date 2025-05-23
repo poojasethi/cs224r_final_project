@@ -6,7 +6,7 @@ from transformers import AutoModelForCausalLM
 
 def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
     args = SFTTrainingArguments(
-        wandb_project=f"{model_id}-sft",
+        wandb_project=f"qwen-sft",
         wandb_run="instruction-following-smoltalk-sft"
     )
 
@@ -21,11 +21,13 @@ def run_instruction_following_sft(model_id: str = "Qwen/Qwen2.5-0.5B"):
     train_dataloader = get_dataloader(
         dataset_name="smoltalk",
         split="train",
+        batch_size=args.train_batch_size
     )
 
     eval_dataloader = get_dataloader(
         dataset_name="smoltalk",
         split="test",
+        batch_size=args.eval_batch_size
     )
 
     trainer = CustomSFTTrainer(
