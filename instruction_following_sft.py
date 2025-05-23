@@ -16,7 +16,7 @@ def run_instruction_following_sft(args: SFTTrainingArguments):
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
         # load in bfloat16 if hardware support is available, otherwise float32
-        torch_dtype="auto",
+        # torch_dtype=torch.auto,
     )
 
     train_dataloader = get_dataloader(
