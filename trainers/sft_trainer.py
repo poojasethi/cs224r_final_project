@@ -54,8 +54,16 @@ class CustomSFTTrainer:
         wandb.watch(self.model, log_freq=args.logging_steps)
 
         # Set the device.
-        self.device = torch.device(
-            "cuda") if torch.cuda.is_available() else "cpu"
+        device = None
+        if torch.cuda.is_available():
+            device = "cuda" 
+        elif torch.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+    
+        self.device = torch.device(device)
+        
         logger.info(f"Using device {self.device}")
         self.model.to(self.device)
 
@@ -64,8 +72,7 @@ class CustomSFTTrainer:
             self.model.parameters(), lr=args.learning_rate)
 
         # Initialize the learning rate scheduler. We use a linear scheduler.
-        num_steps_per_epoch = len(
-            train_dataloader) // args.gradient_accumulation_steps
+        num_steps_per_epoch = len(train_dataloader)
         num_training_steps = num_steps_per_epoch * args.epochs
         self.lr_scheduler = get_linear_schedule_with_warmup(
             self.optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=num_training_steps
