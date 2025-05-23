@@ -3,8 +3,9 @@ import sys
 from torch.utils.data import Dataset
 from datasets import load_dataset
 from typing import Dict, List
-from data.utils import get_tokenizer
+from utils import get_tokenizer
 import logging
+from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ class UltraFeedbackDataset(Dataset):
     def __init__(
         self,
         path="HuggingFaceH4/ultrafeedback_binarized",
-        split="train[:1%]",
+        split="train_prefs[:1%]",
         tokenizer="Qwen/Qwen2.5-0.5B",
         max_length=MAX_LENGTH,
     ):
@@ -108,17 +109,7 @@ class UltraFeedbackDataset(Dataset):
 
     def _tokenize_dataset(self, dataset, max_length: int):
         def tokenize_dicts(batch, tokenizer):
-            # ls_of_stringified_dicts = []
-            # for dicts_list in batch:
-            #     ex = []
-            #     for dict in dicts_list:
-            #         c = dict["content"]
-            #         role = dict["role"]
-            #         s = f"content: {c}, role: {role}"
-            #         ex.append(s)
-            #     joined = " | ".join(ex)
-            #     ls_of_stringified_dicts.append(joined)
-            texts = tokenizer.apply_chat_template(batch[0], tokenize=False)
+            texts = tokenizer.apply_chat_template(batch, tokenize=False)
             return tokenizer(texts, padding='max_length', truncation=True)
 
         output_cols = [
@@ -130,7 +121,6 @@ class UltraFeedbackDataset(Dataset):
             "score_chosen",
             "score_rejected",
             "input_ids",
-            "token_type_ids",
             "attention_mask",
         ]
         
