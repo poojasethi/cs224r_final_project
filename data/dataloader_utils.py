@@ -1,4 +1,4 @@
-from data.preference_datasets import SmolTalkDataset
+from data.preference_datasets import SmolTalkDataset, UltraFeedbackDataset
 from torch.utils.data import DataLoader
 import logging
 import sys
