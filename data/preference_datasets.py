@@ -96,9 +96,10 @@ class SmolTalkDataset(Dataset):
                 current_labels = labels[i]
                 #convert to list for easier processing
                 tokens = current_input_ids.tolist()
-                #find where assistant response starts
 
+                #find where assistant response starts
                 assistant_start_idx = None
+                
                 #Method 1: Look for Qwen's chat template markers
                 decoded = self.tokenizer.decode(current_input_ids, skip_special_tokens=False)
                 assistant_marker = "<|im_start|>assistant"
@@ -141,6 +142,7 @@ class SmolTalkDataset(Dataset):
                 labels[i] = current_labels
             examples["labels"] = labels
             return examples
+        
         #apply processing steps in sequence
         output_cols = ["input_ids", "attention_mask", "labels"]
         
