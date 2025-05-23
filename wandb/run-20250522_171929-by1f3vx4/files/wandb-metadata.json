@@ -1,0 +1,16 @@
+{
+  "os": "macOS-15.4.1-arm64-arm-64bit",
+  "python": "CPython 3.12.10",
+  "startedAt": "2025-05-23T00:19:30.004868Z",
+  "program": "/Users/pooja/Development/cs224r_final_project/instruction_following_sft.py",
+  "codePath": "instruction_following_sft.py",
+  "git": {
+    "remote": "git@github.com:poojasethi/cs224r_final_project.git",
+    "commit": "09a81906fdaf19ddf24b20bef7bb765a8451bc51"
+  },
+  "email": "sethi.pooja@gmail.com",
+  "root": "/Users/pooja/Development/cs224r_final_project",
+  "host": "pooja-mbp.local",
+  "executable": "/Users/pooja/miniforge3/envs/rl_llm/bin/python",
+  "codePathLocal": "instruction_following_sft.py"
+}

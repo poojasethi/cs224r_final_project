@@ -1,7 +1,6 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM, get_linear_schedule_with_warmup
-from accelerate import Accelerator
 from tqdm.auto import tqdm
 import wandb
 import logging

@@ -1,0 +1,44 @@
+{
+  "os": "macOS-15.4.1-arm64-arm-64bit",
+  "python": "CPython 3.12.10",
+  "startedAt": "2025-05-23T01:13:53.196609Z",
+  "program": "/Users/pooja/Development/cs224r_final_project/instruction_following_sft.py",
+  "codePath": "instruction_following_sft.py",
+  "git": {
+    "remote": "git@github.com:poojasethi/cs224r_final_project.git",
+    "commit": "3324c25c236be63116103c1b72bf9ba753468051"
+  },
+  "email": "sethi.pooja@gmail.com",
+  "root": "/Users/pooja/Development/cs224r_final_project",
+  "host": "pooja-mbp.local",
+  "executable": "/Users/pooja/miniforge3/envs/rl_llm/bin/python",
+  "codePathLocal": "instruction_following_sft.py",
+  "cpu_count": 8,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "494384795648",
+      "used": "377533485056"
+    },
+    "/System/Volumes/Data": {
+      "total": "494384795648",
+      "used": "377533485056"
+    }
+  },
+  "memory": {
+    "total": "17179869184"
+  },
+  "cpu": {
+    "count": 8,
+    "countLogical": 8
+  },
+  "apple": {
+    "name": "Apple M1 Pro",
+    "ecpuCores": 2,
+    "pcpuCores": 6,
+    "gpuCores": 14,
+    "memoryGb": 16,
+    "swapTotalBytes": "10737418240",
+    "ramTotalBytes": "17179869184"
+  }
+}
