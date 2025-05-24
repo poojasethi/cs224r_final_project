@@ -98,5 +98,5 @@ if __name__ == "__main__":
             model,
             batch,
         )
-        if step >= 5:
+        if step >= 10:
             break
