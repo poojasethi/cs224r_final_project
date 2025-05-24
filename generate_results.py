@@ -38,7 +38,6 @@ def generate_from_checkpoint(
     logger.info(f"Origal input to model:\n{original_input_text}\n")
 
     # 2. Decode the ground truth response (what the model was trained on)
-    # Filter out masked tokens from labels to get only the assistant's ground truth
     valid_label_ids = [label_id for label_id in labels.tolist() if label_id != -100]
     if valid_label_ids:
         ground_truth_response = tokenizer.decode(valid_label_ids, skip_special_tokens=True)
@@ -57,11 +56,10 @@ def generate_from_checkpoint(
                 top_p=top_p,
                 do_sample=do_sample,
                 pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id, # Stop generation when EOS token is produced
+                eos_token_id=tokenizer.eos_token_id,
                 # num_beams=1,
                 # repetition_penalty=1.1,
             )
-
         generated_tokens = output_ids[0, input_ids.shape[1]:]
         generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
         logger.info(f"Generated assistant response (from model):\n{generated_text}\n")
