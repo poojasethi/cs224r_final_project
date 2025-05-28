@@ -48,7 +48,7 @@ def generate_from_checkpoint(
     prompt: str,
     max_length: int = 512,
     max_new_tokens: int = 512,
-    temperature: float = 0.7,
+    temperature: float = 0.3,
     top_p: float = 0.9,
     do_sample: bool = True,
     device: str = "auto"
@@ -93,7 +93,7 @@ def generate_from_checkpoint(
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
                 num_beams=1,
-                repetition_penalty=1.1,
+                repetition_penalty=1.3,
             )
         generated_tokens = output_ids[0, input_ids.shape[1]:]
         generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
