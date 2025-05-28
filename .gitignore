@@ -175,3 +175,6 @@ cython_debug/
 
 .DS_Store
 .vscode
+
+cs224r_aws_key.pem
+sft_model/
