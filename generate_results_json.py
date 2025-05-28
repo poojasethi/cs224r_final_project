@@ -69,7 +69,7 @@ def generate_from_checkpoint(
         text,
         padding="max_length",
         truncation=True,
-        max_length=512,
+        max_length=max_length,
         return_tensors="pt",
     )
  
