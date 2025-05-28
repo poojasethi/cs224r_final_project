@@ -4,20 +4,15 @@ from data.utils import get_tokenizer
 from transformers import AutoModelForCausalLM
 import argparse
 import logging
+import datetime
+import os
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def run_instruction_following_sft(args: SFTTrainingArguments):
-    # Initialize the tokenizer and the base model. 
-    tokenizer = get_tokenizer("Qwen/Qwen2.5-0.5B")
-
     logger.info(f"Training model {args.model_id}")
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_id,
-        # load in bfloat16 if hardware support is available, otherwise float32
-        # torch_dtype=torch.auto,
-    )
 
     train_dataloader = get_dataloader(
         dataset_name="smoltalk",
@@ -32,8 +27,6 @@ def run_instruction_following_sft(args: SFTTrainingArguments):
     )
 
     trainer = CustomSFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
         train_dataloader=train_dataloader,
         eval_dataloader=eval_dataloader,
         args=args,
@@ -58,10 +51,17 @@ if __name__ == "__main__":
         )
         run_instruction_following_sft(experiment_args)
     else: 
+        now = datetime.datetime.now()
+        date_time_string = now.strftime("%y-%m-%d-%H%M%S")
+        output_dir = f"checkpoints/sft_model_{date_time_string}"
+        os.makedirs(output_dir)
+        logger.info(f"Kicking off sft training and saving results to {output_dir}")
+
         # Kick off a full experiment
         experiment_args = SFTTrainingArguments(
             wandb_project="qwen-sft",
             wandb_run="instruction-following-smoltalk-sft",
             test_split="test[:1%]",
+            output_dir=output_dir,
         )
         run_instruction_following_sft(experiment_args)
