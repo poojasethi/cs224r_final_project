@@ -11,7 +11,7 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./sft_model/checkpoint-80000/" 
+CHECKPOINT_PATH = "./sft_model/checkpoint-100000/" 
 INPUT_JSON_PATH = "evaluation/input/ultrafeedback.json"
 OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_checkpoint.json"
 
@@ -92,8 +92,8 @@ def generate_from_checkpoint(
                 do_sample=do_sample,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                # num_beams=1,
-                # repetition_penalty=1.1,
+                num_beams=1,
+                repetition_penalty=1.1,
             )
         generated_tokens = output_ids[0, input_ids.shape[1]:]
         generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
