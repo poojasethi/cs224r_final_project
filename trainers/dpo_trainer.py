@@ -1,81 +1,113 @@
 import torch
 import os
-from transformers import AutoTokenizer, AutoModelForCausalLM, get_linear_schedule_with_warmup
+from transformers import (
+    AutoTokenizer, 
+    AutoModelForCausalLM, 
+    get_linear_schedule_with_warmup,
+)
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import wandb
 import logging
+import os
 from dataclasses import dataclass
-from trainers.sft_trainer import CustomSFTTrainer
+from accelerate import Accelerator  # Import Accelerator
+# from trainers.sft_trainer import CustomSFTTrainer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./sft_model/checkpoint-80000/" 
+CHECKPOINT_PATH = "./sft_model/checkpoint-20000/" 
 BETA = 0.2
 
 @dataclass
 class DPOTrainingArguments:
-    wandb_project: str
-    wandb_run: str
+    wandb_project: str = "qwen-dpo"
+    wandb_run: str = "instruction-following-ultrafeedback-dpo"
+    model_id: str = "Qwen/Qwen2.5-0.5B"
+    train_split: str = "train"
+    test_split: str = "test"
+    train_batch_size: int = 2
+    eval_batch_size: int = 2
     epochs: int = 1
-    train_batch_size: int = 4
-    eval_batch_size: int = 4
     learning_rate: float = 2e-5
     warmup_steps: int = 0
     logging_steps: int = 10
     eval_steps: int = 100
+    checkpoint_steps: int = 20000
     sft_output_dir: str = "./sft_model"
     dpo_output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
-    fp16: bool = True
+    fp16: bool = False # True
+    # Add gradient accumulation steps
+    gradient_accumulation_steps: int = 32
 
 class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
-    def __init__(self,
-        model: AutoModelForCausalLM,
-        tokenizer: AutoTokenizer,
+    def __init__(
+        self,
         train_dataloader: DataLoader,
         eval_dataloader: DataLoader,
         args: DPOTrainingArguments,
     ):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.train_dataloader = train_dataloader
-        self.eval_dataloader = eval_dataloader
         self.args = args
-
-        # Initialize wandb so we can monitor training.
-        wandb.init(project=args.wandb_project,
-                   name=args.wandb_run, config=args.__dict__)
-        wandb.watch(self.model, log_freq=args.logging_steps)
-
-        # Set the device.
-        device = None
-        if torch.cuda.is_available():
-            device = "cuda" 
-        elif torch.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
-    
-        self.device = torch.device(device)
         
-        logger.info(f"Using device {self.device}")
-        self.model.to(self.device)
-
-        # Initialize the optimizer. We use Adam.
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=args.learning_rate)
-
-        # Initialize the learning rate scheduler. We use a linear scheduler.
-        num_steps_per_epoch = len(train_dataloader)
-        num_training_steps = num_steps_per_epoch * args.epochs
-        self.lr_scheduler = get_linear_schedule_with_warmup(
-            self.optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=num_training_steps
+        # Initialize Accelerator for distributed training and mixed precision
+        self.accelerator = Accelerator(
+            mixed_precision="fp16" if args.fp16 else "no",
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
 
-        # Enable mixed precision training.
-        self.scaler = torch.amp.GradScaler("cuda") if self.args.fp16 else None
+        # Load model and tokenizer from model_id
+        logger.info(f"Loading model and tokenizer from {args.model_id}")
+        self.model = AutoModelForCausalLM.from_pretrained(args.model_id)
+        self.tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        self.train_dataloader = train_dataloader
+        self.eval_dataloader = eval_dataloader
+
+        # Initialize wandb so we can monitor training. Only on the main process.
+        if self.accelerator.is_main_process:
+            wandb.init(
+                project=args.wandb_project, name=args.wandb_run, config=args.__dict__
+            )
+            wandb.watch(self.model, log_freq=args.logging_steps)
+
+        # Initialize the optimizer. We use AdamW.
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(), lr=args.learning_rate
+        )
+
+        # Initialize the learning rate scheduler. We use a linear scheduler.
+        # Calculate total training steps considering gradient accumulation
+        num_steps_per_epoch = len(train_dataloader) // args.gradient_accumulation_steps
+        num_training_steps = num_steps_per_epoch * args.epochs
+        self.lr_scheduler = get_linear_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=args.warmup_steps,
+            num_training_steps=num_training_steps,
+        )
+
+        # Prepare everything for training with Accelerator
+        (
+            self.model,
+            self.optimizer,
+            self.train_dataloader,
+            self.eval_dataloader,
+            self.lr_scheduler,
+        ) = self.accelerator.prepare(
+            self.model,
+            self.optimizer,
+            self.train_dataloader,
+            self.eval_dataloader,
+            self.lr_scheduler,
+        )
+
+        # The device is now managed by Accelerator
+        self.device = self.accelerator.device
+        logger.info(f"Using device {self.device}")
+
 
     def dpo_loss(
         self,  
@@ -96,43 +128,46 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         checkpoint_path = CHECKPOINT_PATH
         beta = BETA
 
-        logger.info(f"Loading tokenizer from {checkpoint_path}...")
-        tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+        # logger.info(f"Loading tokenizer from {checkpoint_path}...")
+        # tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+        # if tokenizer.pad_token is None:
+        #     tokenizer.pad_token = tokenizer.eos_token
 
-        device = torch.device("cuda")
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         logger.info(f"Loading model from {checkpoint_path}...")
         sft_model = AutoModelForCausalLM.from_pretrained(checkpoint_path)
         sft_model.to(device)
         sft_model.eval()
 
-        ref_pref_outputs = sft_model.generate(
-            input_ids=dispreferred_ids,
-            attention_mask=dispreferred_a_masks,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            do_sample=do_sample,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            # num_beams=1,
-            # repetition_penalty=1.1,
-        )
-        ref_dispref_outputs = sft_model.generate(
-            input_ids=preferred_ids,
-            attention_mask=preferred_a_masks,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            do_sample=do_sample,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            # num_beams=1,
-            # repetition_penalty=1.1,
-        )
-        wins = pref_outputs / ref_pref_outputs
-        losses = dispref_outputs / ref_dispref_outputs
+        with torch.no_grad():
+            ref_pref_outputs = sft_model( # .generate
+                input_ids=preferred_ids,
+                attention_mask=preferred_a_masks,
+                # max_new_tokens=max_new_tokens,
+                # temperature=temperature,
+                # top_p=top_p,
+                # do_sample=do_sample,
+                # pad_token_id=tokenizer.pad_token_id,
+                # eos_token_id=tokenizer.eos_token_id,
+                # num_beams=1,
+                # repetition_penalty=1.1,
+            )
+            ref_dispref_outputs = sft_model( # .generate
+                input_ids=dispreferred_ids,
+                attention_mask=dispreferred_a_masks,
+                # max_new_tokens=max_new_tokens,
+                # temperature=temperature,
+                # top_p=top_p,
+                # do_sample=do_sample,
+                # pad_token_id=tokenizer.pad_token_id,
+                # eos_token_id=tokenizer.eos_token_id,
+                # num_beams=1,
+                # repetition_penalty=1.1,
+            )
+        print("pref", pref_outputs.shape)
+        print("ref pref", ref_pref_outputs.logits.shape)
+        wins = pref_outputs / ref_pref_outputs.logits
+        losses = dispref_outputs / ref_dispref_outputs.logits
         inside_sig = beta * torch.log(wins) - beta * torch.log(losses)
         inside_expect = torch.log(torch.sigmoid(inside_sig))
         loss = - inside_expect.mean()
@@ -155,22 +190,22 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
                 preferred_a_masks = batch["preferred_a_masks"].to(self.device)
                 dispreferred_ids = batch['dispreferred_ids'].to(self.device)
                 dispreferred_a_masks = batch['dispreferred_a_masks'].to(self.device)
-                score_chosen = batch['score_chosen'].to(self.device)            # TODO: When do I use these?
-                score_rejected = batch['score_rejected'].to(self.device)        # TODO: When do I use these? 
+                # score_chosen = batch['score_chosen'].to(self.device)            # TODO: When do I use these?
+                # score_rejected = batch['score_rejected'].to(self.device)        # TODO: When do I use these? 
 
                 
                 # 1. Run forward pass (with mixed precision).
                 with torch.amp.autocast("cuda", enabled=self.args.fp16):
                     pref_outputs = self.model(
-                        input_ids=dispreferred_ids,
-                        attention_mask=dispreferred_a_masks
-                    )
-                    dispref_outputs = self.model(
                         input_ids=preferred_ids,
                         attention_mask=preferred_a_masks
                     )
-                    loss = self.dpo_loss(pref_outputs, dispref_outputs, preferred_ids, 
-                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
+                    dispref_outputs = self.model(
+                        input_ids=dispreferred_ids,
+                        attention_mask=dispreferred_a_masks
+                    )
+                    loss = self.dpo_loss(pref_outputs.logits, dispref_outputs.logits, preferred_ids, 
+                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks, self.tokenizer)  
 
                 # 2. Run backward pass.
                 if self.scaler:

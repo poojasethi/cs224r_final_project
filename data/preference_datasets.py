@@ -6,6 +6,7 @@ from typing import Dict, List
 from data.utils import get_tokenizer
 import logging
 from tqdm.auto import tqdm
+from functools import partial
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -168,8 +169,10 @@ class UltraFeedbackDataset(Dataset):
 
         # Pre-tokenize all the data so that training is faster.
         self.collate = partial(self._tokenize_dataset, self.tokenizer, self.max_length)
+        # self.collate = lambda batch: self._tokenize_dataset(batch, self.tokenizer, self.max_length)
 
-    def _tokenize_dataset(self, batch, tokenizer, max_length: int):     # NOTE: Heavily inspired by https://github.com/0xallam/Direct-Preference-Optimization/blob/main/src/train.py  
+
+    def _tokenize_dataset(self, tokenizer, max_length: int, batch):     # NOTE: Heavily inspired by https://github.com/0xallam/Direct-Preference-Optimization/blob/main/src/train.py  
         def tokenize_dicts(batch, tokenizer):
             texts = tokenizer.apply_chat_template(batch, tokenize=False)
             return tokenizer(texts, padding='max_length', truncation=True)
@@ -186,6 +189,10 @@ class UltraFeedbackDataset(Dataset):
         #     "attention_mask",
         # ]
         
+        # print("batch", batch)
+        # print("first entry", batch[0])
+        # print(batch.type())
+        # print(len(batch))
 
         prompts = tokenizer(
             ["Prompt: " + elem['prompt'] + '\n' for elem in batch],
@@ -221,8 +228,8 @@ class UltraFeedbackDataset(Dataset):
             'preferred_a_masks' : preferred_a_masks,
             'dispreferred_ids' : dispreferred_ids,
             'dispreferred_a_masks' : dispreferred_a_masks,
-            'score_chosen' : batch['score_chosen'],
-            'score_rejected' : batch['score_rejected'],
+            # 'score_chosen' : batch['score_chosen'],
+            # 'score_rejected' : batch['score_rejected'],
         }
 
         # chosen_data = dataset.map(lambda example: {

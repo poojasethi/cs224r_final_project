@@ -1,0 +1,46 @@
+{
+  "os": "macOS-15.5-arm64-arm-64bit",
+  "python": "CPython 3.12.4",
+  "startedAt": "2025-05-29T22:50:37.441582Z",
+  "args": [
+    "-d"
+  ],
+  "program": "/Users/marielleib/Documents/GitHub/cs224r_final_project/instruction_following_dpo.py",
+  "codePath": "instruction_following_dpo.py",
+  "git": {
+    "remote": "https://github.com/poojasethi/cs224r_final_project.git",
+    "commit": "8d5e80943e29565b94e739abc54f0f1bd7124ded"
+  },
+  "root": "/Users/marielleib/Documents/GitHub/cs224r_final_project",
+  "host": "DNa808d5f.SUNet",
+  "executable": "/opt/homebrew/Caskroom/miniconda/base/bin/python",
+  "codePathLocal": "instruction_following_dpo.py",
+  "cpu_count": 14,
+  "cpu_count_logical": 14,
+  "disk": {
+    "/": {
+      "total": "994662584320",
+      "used": "847526793216"
+    },
+    "/System/Volumes/Data": {
+      "total": "994662584320",
+      "used": "847526793216"
+    }
+  },
+  "memory": {
+    "total": "38654705664"
+  },
+  "cpu": {
+    "count": 14,
+    "countLogical": 14
+  },
+  "apple": {
+    "name": "Apple M3 Max",
+    "ecpuCores": 4,
+    "pcpuCores": 10,
+    "gpuCores": 30,
+    "memoryGb": 36,
+    "swapTotalBytes": "3221225472",
+    "ramTotalBytes": "38654705664"
+  }
+}
