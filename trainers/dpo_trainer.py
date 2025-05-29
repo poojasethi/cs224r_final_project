@@ -11,6 +11,9 @@ from trainers.sft_trainer import CustomSFTTrainer
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+CHECKPOINT_PATH = "./sft_model/checkpoint-80000/" 
+BETA = 0.2
+
 @dataclass
 class DPOTrainingArguments:
     wandb_project: str
@@ -75,23 +78,58 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         self.scaler = torch.amp.GradScaler("cuda") if self.args.fp16 else None
 
     def dpo_loss(
-        self, 
-        beta, 
+        self,  
         pref_outputs, 
         dispref_outputs, 
         preferred_ids, 
         preferred_a_masks, 
         dispreferred_ids, 
-        dispreferred_a_masks):
+        dispreferred_a_masks,
+        tokenizer: AutoTokenizer,
+        max_new_tokens: int = 512,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        do_sample: bool = True,
+        device: str = "auto"
+        ):
 
-        sft_model = model.load_state_dict(torch.load(self.args.sft_output_dir))
+        checkpoint_path = CHECKPOINT_PATH
+        beta = BETA
+
+        logger.info(f"Loading tokenizer from {checkpoint_path}...")
+        tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        device = torch.device("cuda")
+        logger.info(f"Loading model from {checkpoint_path}...")
+        sft_model = AutoModelForCausalLM.from_pretrained(checkpoint_path)
+        sft_model.to(device)
+        sft_model.eval()
+
         ref_pref_outputs = sft_model.generate(
             input_ids=dispreferred_ids,
-            attention_mask=dispreferred_a_masks
+            attention_mask=dispreferred_a_masks,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            do_sample=do_sample,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            # num_beams=1,
+            # repetition_penalty=1.1,
         )
         ref_dispref_outputs = sft_model.generate(
             input_ids=preferred_ids,
-            attention_mask=preferred_a_masks
+            attention_mask=preferred_a_masks,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            do_sample=do_sample,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            # num_beams=1,
+            # repetition_penalty=1.1,
         )
         wins = pref_outputs / ref_pref_outputs
         losses = dispref_outputs / ref_dispref_outputs
@@ -131,7 +169,7 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
                         input_ids=preferred_ids,
                         attention_mask=preferred_a_masks
                     )
-                    loss = dpo_loss(beta, pref_outputs, dispref_outputs, preferred_ids, 
+                    loss = self.dpo_loss(pref_outputs, dispref_outputs, preferred_ids, 
                                     preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
 
                 # 2. Run backward pass.
