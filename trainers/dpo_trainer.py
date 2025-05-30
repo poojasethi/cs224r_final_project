@@ -139,6 +139,10 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         sft_model.to(device)
         sft_model.eval()
 
+        # print("SFT vocab size:", sft_model.lm_head.out_features)
+        # print("DPO vocab size:", self.model.lm_head.out_features)
+
+
         with torch.no_grad():
             ref_pref_outputs = sft_model( # .generate
                 input_ids=preferred_ids,
