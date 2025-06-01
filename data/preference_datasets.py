@@ -161,106 +161,59 @@ class UltraFeedbackDataset(Dataset):
         max_length=MAX_LENGTH,
     ):
         logger.info(f"Loading data from {path}")
-        self.dataset = load_dataset(path, split=split)
-        logger.info(f"Loaded {len(self.dataset)} samples.")
+        raw_dataset = load_dataset(path, split=split)
+        logger.info(f"Loaded {len(raw_dataset)} samples.")
 
         self.tokenizer = get_tokenizer(tokenizer)
         self.max_length = max_length
 
-        # Pre-tokenize all the data so that training is faster.
-        self.collate = partial(self._tokenize_dataset, self.tokenizer, self.max_length)
-        # self.collate = lambda batch: self._tokenize_dataset(batch, self.tokenizer, self.max_length)
+        self.dataset = []
+        for example in raw_dataset:
+            tokenized = self._tokenize_example(example)
+            self.dataset.append(tokenized)
 
-
-    def _tokenize_dataset(self, tokenizer, max_length: int, batch):     # NOTE: Heavily inspired by https://github.com/0xallam/Direct-Preference-Optimization/blob/main/src/train.py  
-        def tokenize_dicts(batch, tokenizer):
-            texts = tokenizer.apply_chat_template(batch, tokenize=False)
-            return tokenizer(texts, padding='max_length', truncation=True)
-
-        # output_cols = [
-        #     "prompt",
-        #     "prompt_id",
-        #     "chosen",
-        #     "rejected",
-        #     "messages",
-        #     "score_chosen",
-        #     "score_rejected",
-        #     "input_ids",
-        #     "attention_mask",
-        # ]
-        
-        # print("batch", batch)
-        # print("first entry", batch[0])
-        # print(batch.type())
-        # print(len(batch))
-
-        prompts = tokenizer(
-            ["Prompt: " + elem['prompt'] + '\n' for elem in batch],
+    def _tokenize_example(self, example):
+        prompts = self.tokenizer(
+            "Prompt: " + example["prompt"] + "\n",
             padding='max_length',
             truncation=True,
-            max_length=max_length,
+            max_length=self.max_length,
+            return_tensors='pt'
+        )
+        chosen = self.tokenizer(
+            self.tokenizer.apply_chat_template(example["chosen"], tokenize=False),
+            padding='max_length',
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors='pt'
+        )
+        rejected = self.tokenizer(
+            self.tokenizer.apply_chat_template(example["rejected"], tokenize=False),
+            padding='max_length',
+            truncation=True,
+            max_length=self.max_length,
             return_tensors='pt'
         )
 
-        chosen = tokenizer(
-            [tokenizer.apply_chat_template(elem['chosen'], tokenize=False) for elem in batch],
-            padding='max_length',
-            truncation=True,
-            max_length=max_length,
-            return_tensors='pt'
-        )
-
-        rejected = tokenizer(
-            [tokenizer.apply_chat_template(elem['rejected'], tokenize=False) for elem in batch],
-            padding='max_length',
-            truncation=True,
-            max_length=max_length,
-            return_tensors='pt'
-        )
-
-        preferred_ids = torch.cat([prompts.input_ids, chosen.input_ids], dim=-1)
-        preferred_a_masks = torch.cat([prompts.attention_mask, chosen.attention_mask], dim=-1)
-        dispreferred_ids = torch.cat([prompts.input_ids, rejected.input_ids], dim=-1)
-        dispreferred_a_masks = torch.cat([prompts.attention_mask, rejected.attention_mask], dim=-1)
+        preferred_ids = torch.cat([prompts.input_ids, chosen.input_ids], dim=-1).squeeze(0)
+        preferred_a_masks = torch.cat([prompts.attention_mask, chosen.attention_mask], dim=-1).squeeze(0)
+        dispreferred_ids = torch.cat([prompts.input_ids, rejected.input_ids], dim=-1).squeeze(0)
+        dispreferred_a_masks = torch.cat([prompts.attention_mask, rejected.attention_mask], dim=-1).squeeze(0)
 
         return {
             'preferred_ids' : preferred_ids,
             'preferred_a_masks' : preferred_a_masks,
             'dispreferred_ids' : dispreferred_ids,
             'dispreferred_a_masks' : dispreferred_a_masks,
-            # 'score_chosen' : batch['score_chosen'],
-            # 'score_rejected' : batch['score_rejected'],
         }
 
-        # chosen_data = dataset.map(lambda example: {
-        #     "prompt": example['prompt'],
-        #     "answer": example['chosen'], 
-        #     "score": example['score_chosen']
-        # })
-        # chosen_data = dataset.map(lambda example: {
-        #     "prompt": example['prompt'],
-        #     "prompt_id": example['prompt_id'], 
-        #     "answer": example['chosen'], 
-        #     "messages": example['messages'],
-        #     "score": example['score_chosen']
-        # })
-        # rejected_data = dataset['prompt'] + dataset['prompt_id'] + dataset['rejected'] + dataset['messages'] + dataset['score_rejected']
-
-
-        # dataset = dataset.map(lambda e: self.tokenizer(e['prompt'], truncation=True, padding='max_length'), batched=True) 
-        # dataset = dataset.map(lambda e: self.tokenizer(e['prompt_id'], truncation=True, padding='max_length'), batched=True)
-        # dataset = dataset.map(lambda batch: tokenize_dicts(batch['chosen'], self.tokenizer), batched=True)
-        # dataset = dataset.map(lambda batch: tokenize_dicts(batch['rejected'], self.tokenizer), batched=True)
-        # dataset = dataset.map(lambda batch: tokenize_dicts(batch['messages'], self.tokenizer), batched=True)
-        # dataset = dataset.map(lambda batch: self.tokenizer([str(x) for x in batch['score_chosen']], truncation=True, padding='max_length'), batched=True)
-        # dataset = dataset.map(lambda batch: self.tokenizer([str(x) for x in batch['score_rejected']], truncation=True, padding='max_length'), batched=True)
-        # dataset.set_format(type="torch", columns=output_cols)
-        # return dataset
-
+    def __getitem__(self, idx):
+        return self.dataset[idx]
 
     def __len__(self):
         return len(self.dataset)
+    
 
-    def __getitem__(self, idx):
-        item = self.dataset[idx]
-        return item
+
+
+ 

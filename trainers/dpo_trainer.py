@@ -57,6 +57,10 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
             gradient_accumulation_steps=args.gradient_accumulation_steps,
         )
 
+        logger.info(f"Loading sft model from {CHECKPOINT_PATH}...")
+        self.sft_model = AutoModelForCausalLM.from_pretrained(CHECKPOINT_PATH)
+        self.sft_model.eval()
+
         # Load model and tokenizer from model_id
         logger.info(f"Loading model and tokenizer from {args.model_id}")
         self.model = AutoModelForCausalLM.from_pretrained(args.model_id)
@@ -128,45 +132,14 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         checkpoint_path = CHECKPOINT_PATH
         beta = BETA
 
-        # logger.info(f"Loading tokenizer from {checkpoint_path}...")
-        # tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-        # if tokenizer.pad_token is None:
-        #     tokenizer.pad_token = tokenizer.eos_token
-
-        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-        logger.info(f"Loading model from {checkpoint_path}...")
-        sft_model = AutoModelForCausalLM.from_pretrained(checkpoint_path)
-        sft_model.to(device)
-        sft_model.eval()
-
-        # print("SFT vocab size:", sft_model.lm_head.out_features)
-        # print("DPO vocab size:", self.model.lm_head.out_features)
-
-
         with torch.no_grad():
-            ref_pref_outputs = sft_model( # .generate
+            ref_pref_outputs = self.sft_model( # .generate
                 input_ids=preferred_ids,
                 attention_mask=preferred_a_masks,
-                # max_new_tokens=max_new_tokens,
-                # temperature=temperature,
-                # top_p=top_p,
-                # do_sample=do_sample,
-                # pad_token_id=tokenizer.pad_token_id,
-                # eos_token_id=tokenizer.eos_token_id,
-                # num_beams=1,
-                # repetition_penalty=1.1,
             )
-            ref_dispref_outputs = sft_model( # .generate
+            ref_dispref_outputs = self.sft_model( # .generate
                 input_ids=dispreferred_ids,
                 attention_mask=dispreferred_a_masks,
-                # max_new_tokens=max_new_tokens,
-                # temperature=temperature,
-                # top_p=top_p,
-                # do_sample=do_sample,
-                # pad_token_id=tokenizer.pad_token_id,
-                # eos_token_id=tokenizer.eos_token_id,
-                # num_beams=1,
-                # repetition_penalty=1.1,
             )
         print("pref", pref_outputs.shape)
         print("ref pref", ref_pref_outputs.logits.shape)
@@ -184,19 +157,21 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         logger.info("\n*******Running training**********\n")
         self.model.train()
 
+        self.train_dataloader, self.eval_dataloader = self.accelerator.prepare(
+            self.train_dataloader, self.eval_dataloader
+        )
+
+
         global_steps = 0
         for epoch in range(self.args.epochs):
             progress_bar = tqdm(self.train_dataloader,
                                 desc=f"Epoch {epoch + 1}/{self.args.epochs}")
 
             for step, batch in enumerate(progress_bar):
-                preferred_ids = batch["preferred_ids"].to(self.device)
-                preferred_a_masks = batch["preferred_a_masks"].to(self.device)
-                dispreferred_ids = batch['dispreferred_ids'].to(self.device)
-                dispreferred_a_masks = batch['dispreferred_a_masks'].to(self.device)
-                # score_chosen = batch['score_chosen'].to(self.device)            # TODO: When do I use these?
-                # score_rejected = batch['score_rejected'].to(self.device)        # TODO: When do I use these? 
-
+                preferred_ids = batch["preferred_ids"]
+                preferred_a_masks = batch["preferred_a_masks"]
+                dispreferred_ids = batch['dispreferred_ids']
+                dispreferred_a_masks = batch['dispreferred_a_masks']
                 
                 # 1. Run forward pass (with mixed precision).
                 with torch.amp.autocast("cuda", enabled=self.args.fp16):

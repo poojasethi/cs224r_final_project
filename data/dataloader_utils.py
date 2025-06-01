@@ -35,7 +35,6 @@ def get_dataloader(
             batch_size=batch_size,  # Use the defined batch size
             shuffle=True,  # Shuffle data for training
             num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
-            collate_fn=dataset.collate
         )
 
     else:
