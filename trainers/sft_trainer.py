@@ -187,7 +187,7 @@ class CustomSFTTrainer:
                         )
                         os.makedirs(output_dir, exist_ok=True)
                         # Use accelerator.save_model for proper saving in distributed setup
-                        self.accelerator.save_model(self.model, output_dir)
+                        self.accelerator.unwrap_model(self.model).save_pretrained(output_dir)
                         self.tokenizer.save_pretrained(output_dir)
 
         # Save the final model after training is finished. Only on the main process.
@@ -196,7 +196,7 @@ class CustomSFTTrainer:
                 self.args.output_dir, f"checkpoint-{global_steps}"
             )
             os.makedirs(output_dir, exist_ok=True)
-            self.accelerator.save_model(self.model, output_dir)
+            self.accelerator.unwrap_model(self.model).save_pretrained(output_dir)
             self.tokenizer.save_pretrained(output_dir)
             logger.info(f"\nTraining complete! Model saved to {output_dir}")
             wandb.finish()
