@@ -1,33 +1,39 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM # Reverted to AutoModelForCausalLM
+from openai import OpenAI
 import os
 import json
 import logging
 from tqdm.auto import tqdm
 import pandas as pd
-from openai import OpenAI # For the reward model
-from typing import Tuple
+from typing import Dict, Any, Tuple, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Configuration ---
 CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-INPUT_JSON_PATH = "evaluation/input/ultrafeedback_tiny.json"
-OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_checkpoint-100000_refinement_extension.json"
+INPUT_JSON_PATH = "evaluation/input/ultrafeedback.json"
+OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/ultrafeedback_iterative_refinement.json" # Detailed results
+OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/ultrafeedback_final_responses.json" # New file for just prompt and final response
 
-# Reward model specific configuration
+# Nemotron Reward Model configuration
 REWARD_MODEL_API_KEY = os.getenv("REWARD_MODEL_API_KEY", "")
-REWARD_MODEL_NAME = "nvidia/llama-3.1-nemotron-70b-reward" # Assuming this is accessible via your NVIDIA API key
+REWARD_MODEL_NAME = "nvidia/llama-3.1-nemotron-70b-reward"
+REWARD_MODEL_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
-# Test-time inference parameters
-MAX_REFINEMENT_STEPS = 3 # How many times to try and refine the response
-IMPROVEMENT_THRESHOLD = 0.05 # Minimum score improvement to continue refining
+# Configuration for iterative refinement
+MAX_ITERATIONS = 3
+SCORE_IMPROVEMENT_THRESHOLD = 0.05
+MIN_ACCEPTABLE_SCORE = 0.7
 
-# --- Utility Functions ---
+# --- Helper Functions ---
 
-def load_tokenizer_and_model(checkpoint_path=CHECKPOINT_PATH):
+def load_model_tokenizer_and_device(
+    model_path: str = CHECKPOINT_PATH
+) -> Tuple[AutoTokenizer, AutoModelForCausalLM, str]:
     """
-    Loads the tokenizer and language model from the specified checkpoint path.
+    Loads the model and tokenizer using transformers.
     """
     device = None
     if torch.cuda.is_available():
@@ -37,25 +43,25 @@ def load_tokenizer_and_model(checkpoint_path=CHECKPOINT_PATH):
     else:
         device = "cpu"
 
-    if not os.path.isdir(checkpoint_path):
-        raise ValueError(f"Error: Checkpoint path '{checkpoint_path}' does not exist or is not a directory.")
+    if not os.path.isdir(model_path):
+        raise ValueError(f"Error: Model path '{model_path}' does not exist or is not a directory.")
 
-    logger.info(f"Loading tokenizer from {checkpoint_path}...")
-    tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+    logger.info(f"Loading tokenizer from {model_path}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    logger.info(f"Loading model from {checkpoint_path}...")
-    model = AutoModelForCausalLM.from_pretrained(checkpoint_path, torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32)
+    logger.info(f"Loading model from {model_path}...")
+    model = AutoModelForCausalLM.from_pretrained(model_path)
     model.to(device)
     model.eval()
-    logger.info(f"Model loaded on device: {device}")
 
-    return tokenizer, model
+    return tokenizer, model, device
 
-def get_reward_score(client, model_name, user_content, assistant_content):
+def get_reward_score(client: OpenAI, model_name: str, user_content: str, assistant_content: str) -> Optional[float]:
     """
-    Gets a reward score for a prompt-response pair using the specified reward model.
+    Gets a reward score for a prompt-response pair using the Nemotron 70B Reward Model.
+    Returns a single float score (typically between 0 and 1, higher is better).
     """
     try:
         completion = client.chat.completions.create(
@@ -63,219 +69,184 @@ def get_reward_score(client, model_name, user_content, assistant_content):
             messages=[
                 {"role": "user", "content": user_content},
                 {"role": "assistant", "content": assistant_content}
-            ],
-            # Ensure the reward model outputs only the score
-            max_tokens=10 # Score is typically short
+            ]
         )
-        score_str = completion.choices[0].message.content.removeprefix("reward:").strip()
+        score_str = completion.choices[0].message.content.removeprefix("reward:")
         score = float(score_str)
         return score
     except Exception as e:
-        logger.error(f"Error getting reward score from {model_name}: {e}")
+        logger.error(f"Error getting reward score from Nemotron API: {e}")
         return None
 
-def generate_from_checkpoint(
+def generate_and_refine(
     tokenizer: AutoTokenizer,
-    model: AutoModelForCausalLM,
+    model: AutoModelForCausalLM, # Changed back to AutoModelForCausalLM
+    reward_client: OpenAI,
     prompt: str,
-    max_length: int = 512, # Max length for tokenization of input
-    max_new_tokens: int = 512, # Max tokens to generate
-    temperature: float = 0.7, # Increased temperature for more diverse initial responses
+    device: str, # Device is needed for transformers model
+    max_length: int = 512,
+    max_new_tokens: int = 512,
+    temperature: float = 0.3,
     top_p: float = 0.9,
     do_sample: bool = True,
-    repetition_penalty: float = 1.1, # Slightly reduced to encourage variety
-) -> str:
+) -> Tuple[str, Optional[float], int, Optional[float]]:
     """
-    Generates text using a model loaded from a saved checkpoint.
+    Generates and iteratively refines a response using the model and Nemotron reward model.
     """
-    message = [{"role": "user", "content": prompt}]
+    current_response = ""
+    current_overall_score = -float('inf')
+    initial_overall_score = None
+    num_iterations = 0
 
-    # Use chat template to format messages
-    text = tokenizer.apply_chat_template(
-        message, tokenize=False, add_generation_prompt=True
-    )
-
-    tokenized = tokenizer(
-        text,
-        padding="max_length",
-        truncation=True,
-        max_length=max_length,
-        return_tensors="pt",
-    )
-
-    input_ids = tokenized['input_ids'].to(model.device)
-    attention_mask = tokenized['attention_mask'].to(model.device)
-
-    logger.debug(f"Original input to model (debug):\n{tokenizer.decode(input_ids[0], skip_special_tokens=False)}\n")
-
-    try:
-        with torch.no_grad():
-            output_ids = model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=do_sample,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-                num_beams=1,
-                repetition_penalty=repetition_penalty, 
+    for i in range(MAX_ITERATIONS):
+        num_iterations = i + 1
+        messages = [{"role": "user", "content": prompt}]
+        
+        if i > 0:
+            feedback_instruction = (
+                f"Previous Response: {current_response}\n\n"
+                f"Refine the previous response to achieve a higher quality score. "
+                f"Prioritize instruction following, truthfulness, helpfulness, and accuracy. "
+                f"Ensure the refined response directly answers the user's original prompt, "
+                f"is comprehensive, factually correct, and avoids any redundant or unnecessary information. "
+                f"Focus on concise and impactful improvements to the previous response."
             )
-        generated_tokens = output_ids[0, input_ids.shape[1]:]
-        generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-        logger.debug(f"Generated assistant response (debug):\n{generated_text}\n")
-    except Exception as e:
-        logger.error(f"Error during generation: {e}")
-        generated_text = "" # Return empty string on error
+            messages.append({"role": "assistant", "content": current_response})
+            messages.append({"role": "user", "content": feedback_instruction})
 
-    return generated_text
-
-def refine_response(
-    original_prompt: str,
-    current_response: str,
-    reward_client: OpenAI,
-    reward_model_name: str,
-    tokenizer: AutoTokenizer,
-    model: AutoModelForCausalLM,
-    max_refinement_steps: int = MAX_REFINEMENT_STEPS,
-    improvement_threshold: float = IMPROVEMENT_THRESHOLD
-) -> Tuple[str, bool]:
-    """
-    Iteratively refines a response based on reward model feedback.
-    """
-    best_response = current_response
-    best_score = get_reward_score(reward_client, reward_model_name, original_prompt, current_response)
-    logger.info(f"Initial score for prompt '{original_prompt[:50]}...': {best_score}")
-
-    if best_score is None:
-        logger.warning("Could not get initial reward score. Skipping refinement.")
-        return best_response
-
-    response_improved = False
-    for step in range(max_refinement_steps):
-        logger.info(f"Refinement step {step + 1}/{max_refinement_steps} for prompt '{original_prompt[:50]}...'")
-
-        # Get feedback from the reward model (or a specific critic model if available)
-        refinement_instruction = (
-            "The previous response did not fully meet the quality criteria. "
-            "Please revise it to be more precise, helpful, honest, and truthful"
-            "Ensure you strictly follow the original instruction and avoid any rambling or irrelevant information. "
-            "Focus on providing a concise and direct answer to the user's request. "
-            "Do not start or cut off your response in the middle of a sentence."
-            "Respond ONLY with the revised answer."
+        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        
+        tokenized = tokenizer(
+            text,
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt",
         )
 
-        # TODO: we could also prompt an LLM reward model for explicit critique.
-        # critic_prompt = f"Critique the following response to the user's query:\nUser: {original_prompt}\nAssistant: {current_response}\n\nProvide specific feedback on its instruction following, honesty, helpfulness, truthfulness, and conciseness. Highlight areas for improvement."
-        # critique = generate_from_critic_model(critic_prompt)
+        input_ids = tokenized['input_ids'].to(model.device)
+        attention_mask = tokenized['attention_mask'].to(model.device)
 
-        # Construct the conversation history for refinement
-        # The model sees the original prompt, its previous attempt, and the refinement instruction.
-        refinement_messages = [
-            {"role": "user", "content": original_prompt},
-            {"role": "assistant", "content": current_response},
-            {"role": "user", "content": refinement_instruction}
-        ]
+        try:
+            with torch.no_grad():
+                output_ids = model.generate( # Using model.generate from transformers
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    do_sample=do_sample,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                    num_beams=1,
+                    repetition_penalty=1.3,
+                )
+            
+            start_index = input_ids.shape[1]
+            generated_tokens = output_ids[0, start_index:]
+            new_response_segment = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+            
+            current_response = new_response_segment
+            logger.info(f"Iteration {i+1} - Generated assistant response:\n{current_response}\n")
 
-        # Apply chat template for the refinement prompt
-        refinement_text = tokenizer.apply_chat_template(
-            refinement_messages, tokenize=False, add_generation_prompt=True
-        )
+            new_overall_score = get_reward_score(reward_client, REWARD_MODEL_NAME, prompt, current_response)
 
-        # Generate a refined response
-        new_response = generate_from_checkpoint(
-            tokenizer,
-            model,
-            refinement_text,
-            max_new_tokens=512, # Allow sufficient tokens for refined response
-            temperature=0.3,
-            repetition_penalty=1.4 # Keep some penalty
-        )
+            if new_overall_score is None:
+                logger.warning(f"Could not get reward score for iteration {i+1}. Stopping refinement for this prompt.")
+                break
+                
+            if i == 0:
+                initial_overall_score = new_overall_score
+            
+            logger.info(f"Iteration {i+1} - Nemotron Reward Score: {new_overall_score:.4f}")
 
-        # Remove any unncessary whitespace.
-        new_response = new_response.strip(".").strip()
+            if new_overall_score is not None and \
+               (new_overall_score > current_overall_score + SCORE_IMPROVEMENT_THRESHOLD or \
+                new_overall_score >= MIN_ACCEPTABLE_SCORE):
+                current_overall_score = new_overall_score
+                if new_overall_score >= MIN_ACCEPTABLE_SCORE and i > 0:
+                    logger.info(f"Stopping early: Satisfactory score reached ({new_overall_score:.4f}).")
+                    break
+            else:
+                logger.info(f"Stopping early: No significant improvement (current score {new_overall_score:.4f} vs previous best {current_overall_score:.4f}) or score decreased.")
+                break
 
-        if not new_response:
-            logger.warning(f"No new response generated in refinement step {step+1}. Stopping refinement.")
+        except Exception as e:
+            logger.error(f"Error during generation in iteration {i+1}: {e}")
             break
-
-        new_score = get_reward_score(reward_client, reward_model_name, original_prompt, new_response)
-        logger.info(f"Refinement step {step + 1} score: {new_score}")
-
-        if new_score is None:
-            logger.warning("Could not get new reward score. Stopping refinement.")
-            break
-
-        # Check for improvement
-        if new_score > best_score + improvement_threshold:
-            logger.info(f"Response improved! Old score: {best_score:.4f}, New score: {new_score:.4f}")
-            best_response = new_response
-            best_score = new_score
-            response_improved = True
-        else:
-            logger.info(f"No significant improvement (or score decreased). Old score: {best_score:.4f}, New score: {new_score:.4f}. Stopping refinement.")
-            break # Stop if no significant improvement
-
-        current_response = new_response # Use the new response for the next iteration
-
-    logger.info(f"Final score after refinement: {best_score}")
-    return best_response, response_improved
+            
+    return current_response, current_overall_score, num_iterations, initial_overall_score
 
 if __name__ == "__main__":
-    output = []
-
-    # Initialize reward model client
     if not REWARD_MODEL_API_KEY:
-        logger.error("Reward model API key is required. Please set the 'REWARD_MODEL_API_KEY' environment variable.")
+        logger.error("REWARD_MODEL_API_KEY environment variable is not set. Please set it before running the script.")
         exit()
+
+    detailed_output = []
+    final_responses_output = []
+    
+    total_responses_processed = 0
+    responses_improved_count = 0
+    total_score_improvement = 0.0
+
+    tokenizer, model, device = load_model_tokenizer_and_device() # Load transformers model
+
     reward_client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
+        base_url=REWARD_MODEL_BASE_URL,
         api_key=REWARD_MODEL_API_KEY
     )
-    logger.info(f"Initialized OpenAI client for reward model: {REWARD_MODEL_NAME}")
-
-    tokenizer, model = load_tokenizer_and_model()
+    logger.info(f"Initialized OpenAI client for Nemotron Reward Model: {REWARD_MODEL_NAME}")
 
     input_df = pd.read_json(INPUT_JSON_PATH, lines=True)
     prompts = input_df["prompt"].to_list()
-    progress_bar = tqdm(prompts, desc="Processing prompts with iterative refinement")
-
-    num_responses_improved = 0
+    progress_bar = tqdm(prompts, desc="Evaluating and Refining Responses")
+    
     for step, prompt in enumerate(progress_bar):
-        logger.info(f"\n****** Running prompt {step + 1} ******")
-        logger.info(f"Prompt: {prompt}")
-
-        # 1. Generate initial response
-        initial_response = generate_from_checkpoint(
+        total_responses_processed += 1
+        
+        final_response, final_score, num_iterations, initial_score = generate_and_refine(
             tokenizer,
             model,
+            reward_client,
             prompt,
-            temperature=0.7 # Start with a slightly higher temperature for diversity
+            device
         )
-        logger.info(f"Initial response:\n{initial_response}")
+        
+        improvement_for_this_response = 0.0
+        if final_score is not None and initial_score is not None:
+             improvement_for_this_response = final_score - initial_score
+             if improvement_for_this_response > SCORE_IMPROVEMENT_THRESHOLD:
+                 responses_improved_count += 1
+                 total_score_improvement += improvement_for_this_response
 
-        # 2. Refine the response iteratively
-        final_response, response_improved = refine_response(
-            original_prompt=prompt,
-            current_response=initial_response,
-            reward_client=reward_client,
-            reward_model_name=REWARD_MODEL_NAME,
-            tokenizer=tokenizer,
-            model=model
-        )
-        logger.info(f"Final refined response:\n{final_response}")
-        output.append({"prompt": prompt, "response": final_response})
+        detailed_output.append({
+            "prompt": prompt,
+            "initial_score": initial_score,
+            "final_response": final_response,
+            "final_score": final_score,
+            "num_iterations": num_iterations,
+            "score_improvement": improvement_for_this_response
+        })
 
-        if response_improved:
-            num_responses_improved += 1
-    
-    # Log the number of responses that were improved by iterative refinment:
-    num_responses_improved += 1
-    logger.info(f"Fraction of responses improved: {num_responses_improved}/{len(prompts)}")
+        final_responses_output.append({
+            "prompt": prompt,
+            "response": final_response
+        })
 
-    # Save results
-    with open(OUTPUT_JSON_PATH, 'w') as f:
-        for item in output:
+    with open(OUTPUT_ITERATIVE_RESULTS_PATH, 'w') as f:
+        for item in detailed_output:
             f.write(json.dumps(item) + "\n")
-    logger.info(f"Generated responses saved to {OUTPUT_JSON_PATH}")
+
+    with open(OUTPUT_FINAL_RESPONSES_PATH, 'w') as f:
+        for item in final_responses_output:
+            f.write(json.dumps(item) + "\n")
+
+    avg_score_improvement_for_improved = total_score_improvement / responses_improved_count if responses_improved_count > 0 else 0.0
+
+    logger.info(f"\n**** Iterative Refinement Summary***")
+    logger.info(f"Total responses processed: {total_responses_processed}")
+    logger.info(f"Responses significantly improved: {responses_improved_count}")
+    logger.info(f"Percentage of responses significantly improved: {(responses_improved_count / total_responses_processed * 100):.2f}%")
+    logger.info(f"Average score improvement for significantly improved responses: {avg_score_improvement_for_improved:.4f}")
+    logger.info(f"Detailed results saved to {OUTPUT_ITERATIVE_RESULTS_PATH}")
+    logger.info(f"Final prompts and responses saved to {OUTPUT_FINAL_RESPONSES_PATH}")
