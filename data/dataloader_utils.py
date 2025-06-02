@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 def get_dataloader(
     dataset_name: str,
     split: str = "train[:1%]",
-    batch_size: int = 8,
+    batch_size: int = 1,
 ):
     """
-    Creates the SmolTok dataloader.
+    Creates the dataloader.
     """
     dataset = None
     if dataset_name == "smoltalk":

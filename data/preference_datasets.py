@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MAX_PROMPT_LENGTH = 256
-MAX_RESPONSE_LENGTH = 1024
+MAX_RESPONSE_LENGTH = 256
 MAX_LENGTH = MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH
 
 """
@@ -171,6 +171,7 @@ class UltraFeedbackDataset(Dataset):
         for example in raw_dataset:
             tokenized = self._tokenize_example(example)
             self.dataset.append(tokenized)
+        # print("done tokenizing")
 
     def _tokenize_example(self, example):
         prompts = self.tokenizer(
@@ -199,7 +200,6 @@ class UltraFeedbackDataset(Dataset):
         preferred_a_masks = torch.cat([prompts.attention_mask, chosen.attention_mask], dim=-1).squeeze(0)
         dispreferred_ids = torch.cat([prompts.input_ids, rejected.input_ids], dim=-1).squeeze(0)
         dispreferred_a_masks = torch.cat([prompts.attention_mask, rejected.attention_mask], dim=-1).squeeze(0)
-
         return {
             'preferred_ids' : preferred_ids,
             'preferred_a_masks' : preferred_a_masks,

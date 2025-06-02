@@ -27,8 +27,8 @@ class DPOTrainingArguments:
     model_id: str = "Qwen/Qwen2.5-0.5B"
     train_split: str = "train"
     test_split: str = "test"
-    train_batch_size: int = 2
-    eval_batch_size: int = 2
+    train_batch_size: int = 1
+    eval_batch_size: int = 1
     epochs: int = 1
     learning_rate: float = 2e-5
     warmup_steps: int = 0
@@ -121,18 +121,13 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         preferred_a_masks, 
         dispreferred_ids, 
         dispreferred_a_masks,
-        tokenizer: AutoTokenizer,
-        max_new_tokens: int = 512,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-        do_sample: bool = True,
-        device: str = "auto"
         ):
 
         checkpoint_path = CHECKPOINT_PATH
         beta = BETA
 
         with torch.no_grad():
+            # self.print_cuda_memory()
             ref_pref_outputs = self.sft_model( # .generate
                 input_ids=preferred_ids,
                 attention_mask=preferred_a_masks,
@@ -141,8 +136,8 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
                 input_ids=dispreferred_ids,
                 attention_mask=dispreferred_a_masks,
             )
-        print("pref", pref_outputs.shape)
-        print("ref pref", ref_pref_outputs.logits.shape)
+        # print("pref", pref_outputs.shape)
+        # print("ref pref", ref_pref_outputs.logits.shape)
         wins = pref_outputs / ref_pref_outputs.logits
         losses = dispref_outputs / ref_dispref_outputs.logits
         inside_sig = beta * torch.log(wins) - beta * torch.log(losses)
@@ -161,111 +156,150 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
             self.train_dataloader, self.eval_dataloader
         )
 
-
+        # self.print_cuda_memory()
         global_steps = 0
         for epoch in range(self.args.epochs):
-            progress_bar = tqdm(self.train_dataloader,
-                                desc=f"Epoch {epoch + 1}/{self.args.epochs}")
+            # Wrap dataloader with tqdm only on the main process
+            progress_bar = tqdm(
+                self.train_dataloader,
+                desc=f"Epoch {epoch + 1}/{self.args.epochs}",
+                disable=not self.accelerator.is_main_process,
+            )
 
             for step, batch in enumerate(progress_bar):
-                preferred_ids = batch["preferred_ids"]
-                preferred_a_masks = batch["preferred_a_masks"]
-                dispreferred_ids = batch['dispreferred_ids']
-                dispreferred_a_masks = batch['dispreferred_a_masks']
-                
-                # 1. Run forward pass (with mixed precision).
-                with torch.amp.autocast("cuda", enabled=self.args.fp16):
+                # Gradient accumulation context
+                with self.accelerator.accumulate(self.model):
+                    preferred_ids = batch["preferred_ids"]
+                    preferred_a_masks = batch["preferred_a_masks"]
+                    dispreferred_ids = batch['dispreferred_ids']
+                    dispreferred_a_masks = batch['dispreferred_a_masks']
+                    
+                    # 1. Run forward pass. Accelerator handles mixed precision.
                     pref_outputs = self.model(
                         input_ids=preferred_ids,
                         attention_mask=preferred_a_masks
                     )
+                    # self.print_cuda_memory()
                     dispref_outputs = self.model(
                         input_ids=dispreferred_ids,
                         attention_mask=dispreferred_a_masks
                     )
+                    # self.print_cuda_memory()
+                    # breakpoint()
                     loss = self.dpo_loss(pref_outputs.logits, dispref_outputs.logits, preferred_ids, 
-                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks, self.tokenizer)  
+                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
 
-                # 2. Run backward pass.
-                if self.scaler:
-                    self.scaler.scale(loss).backward()
-                else:
-                    loss.backward()
+                    # Scale loss for gradient accumulation
+                    loss = loss / self.args.gradient_accumulation_steps
 
-                # 3. Step the optimizer.
-                if self.scaler:
-                    self.scaler.unscale_(self.optimizer)
-                    # Clip gradients for stability during training.
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), 1.0)
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                else:
-                    # Clip gradients for stability during training.
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), 1.0)
-                    self.optimizer.step()
+                    # 2. Run backward pass.
+                    self.accelerator.backward(loss)
 
-                # 4. Step the learning rate scheduler.
-                self.lr_scheduler.step()
-
-                # 5. Clear gradients.
-                self.optimizer.zero_grad()
+                    # 3. Clip gradients and step the optimizer/scheduler
+                    if self.accelerator.sync_gradients:
+                        self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
+                        self.optimizer.step()
+                        self.lr_scheduler.step()
+                        self.optimizer.zero_grad()
 
                 # Log the training loss and current learning rate.
-                global_steps += 1
-                if global_steps % self.args.logging_steps == 0:
-                    current_lr = self.lr_scheduler.get_last_lr()[0]
-                    logs = {
-                        "train_loss": loss.item(),
-                        "learning_rate": current_lr,
-                        "global_step": global_steps,
-                    }
-                    wandb.log(logs, step=global_steps)
+                # Only log on the main process
+                if self.accelerator.is_main_process:
+                    global_steps += (
+                        1  # Increment global_steps only on main process for logging
+                    )
+                    if global_steps % self.args.logging_steps == 0:
+                        current_lr = self.lr_scheduler.get_last_lr()[0]
+                        logs = {
+                            "train_loss": loss.item()
+                            * self.args.gradient_accumulation_steps,  # Unscale loss for logging
+                            "learning_rate": current_lr,
+                            "global_step": global_steps,
+                        }
+                        wandb.log(logs, step=global_steps)
 
-                # Log the evaluation loss.
-                if global_steps % self.args.eval_steps == 0:
-                    eval_loss = self.evaluate()
-                    wandb.log({"eval_loss": eval_loss}, step=global_steps)
+                    # Log the evaluation loss.
+                    if global_steps % self.args.eval_steps == 0:
+                        eval_loss = self.evaluate()
+                        wandb.log({"eval_loss": eval_loss}, step=global_steps)
+                        logger.info(
+                            f"Running evaluation at {global_steps}, got loss: {eval_loss}"
+                        )
 
-                     # Set model back to train mode after doing evaluation.
-                    self.model.train() 
+                        # Set model back to train mode after doing evaluation.
+                        self.model.train()
 
-        # Save the final model after training is finished.
-        output_dir = os.path.join(
-            self.args.dpo_output_dir, f"checkpoint-{global_steps}")
+                    if global_steps % self.args.checkpoint_steps == 0:
+                        logger.info(f"Saving checkpoint after {global_steps}")
+                        output_dir = os.path.join(
+                            self.args.output_dir, f"checkpoint-{global_steps}"
+                        )
+                        os.makedirs(output_dir, exist_ok=True)
+                        # Use accelerator.save_model for proper saving in distributed setup
+                        self.accelerator.save_model(self.model, output_dir)
+                        self.tokenizer.save_pretrained(output_dir)
 
-        os.makedirs(output_dir, exist_ok=True)
-        self.model.save_pretrained(output_dir)
-        self.tokenizer.save_pretrained(output_dir)
-        logger.info(f"\nTraining complete! Model saved to {output_dir}")
-        wandb.finish()
+        # Save the final model after training is finished. Only on the main process.
+        if self.accelerator.is_main_process:
+            output_dir = os.path.join(
+                self.args.output_dir, f"checkpoint-{global_steps}"
+            )
+            os.makedirs(output_dir, exist_ok=True)
+            self.accelerator.save_model(self.model, output_dir)
+            self.tokenizer.save_pretrained(output_dir)
+            logger.info(f"\nTraining complete! Model saved to {output_dir}")
+            wandb.finish()
+
 
 
     @torch.no_grad()
-    def evaluate(self):         # Copied from Pooja's Sft trainer file with minimal changes
+    def evaluate(self):
         logger.info("\n*******Running evaluation**********\n")
         self.model.eval()
 
         total_eval_loss = 0
         num_eval_batches = 0
-        for batch in tqdm(self.eval_dataloader, desc="Evaluating"):
-            batch = {k: v.to(self.device) for k, v in batch.items()}
+        for batch in tqdm(
+            self.eval_dataloader,
+            desc="Evaluating",
+            disable=not self.accelerator.is_main_process,
+        ):
+            # Accelerator already handled device placement for dataloader batches
+            preferred_ids = batch["preferred_ids"]
+            preferred_a_masks = batch["preferred_a_masks"]
+            dispreferred_ids = batch['dispreferred_ids']
+            dispreferred_a_masks = batch['dispreferred_a_masks']
 
-            input_ids = batch["input_ids"].to(self.device)
-            attention_mask = batch["attention_mask"].to(self.device)
-
-            with torch.amp.autocast("cuda", enabled=self.args.fp16):
-                outputs = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask
-                )
-                loss = outputs.loss
+            pref_outputs = self.model(
+                input_ids=preferred_ids,
+                attention_mask=preferred_a_masks
+            )
+            # self.print_cuda_memory()
+            dispref_outputs = self.model(
+                input_ids=dispreferred_ids,
+                attention_mask=dispreferred_a_masks
+            )
+            loss = self.dpo_loss(pref_outputs.logits, dispref_outputs.logits, preferred_ids, 
+                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
 
             total_eval_loss += loss.item()
             num_eval_batches += 1
 
+        # Gather losses from all processes and average
+        total_eval_loss = (
+            self.accelerator.gather(torch.tensor(total_eval_loss).to(self.device))
+            .sum()
+            .item()
+        )
+        num_eval_batches = (
+            self.accelerator.gather(torch.tensor(num_eval_batches).to(self.device))
+            .sum()
+            .item()
+        )
+
         avg_eval_loss = total_eval_loss / num_eval_batches
         logger.info(f"Evaluation Loss: {avg_eval_loss:.4f}")
         return avg_eval_loss
+
+
 

@@ -19,6 +19,7 @@ def run_instruction_following_dpo(args: DPOTrainingArguments):
         split=args.train_split,  # Note: Using a smaller dataset for debugging.
         batch_size=args.train_batch_size,
     )
+    # print_cuda_memory("gotten train dataloader")
 
     eval_dataloader = get_dataloader(
         dataset_name="ultrafeedback",
@@ -31,7 +32,7 @@ def run_instruction_following_dpo(args: DPOTrainingArguments):
         eval_dataloader=eval_dataloader,
         args=args,
     )
-
+    # print_cuda_memory("DPOTrainer est")
     trainer.train()
 
 
@@ -63,5 +64,6 @@ if __name__ == "__main__":
             wandb_run="instruction-following-ultrafeedback-dpo",
             test_split="test[:1%]",
             dpo_output_dir=output_dir,
+            train_batch_size=1
         )
         run_instruction_following_dpo(experiment_args)
