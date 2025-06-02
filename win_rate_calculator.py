@@ -5,6 +5,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from openai import OpenAI
 import logging
 from tqdm import tqdm
+from vllm import LLM, SamplingParams
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def load_responses_file(file_path):
         exit()
     return data
 
-def generate_base_model_response(model, tokenizer, prompt, max_new_tokens=100):
+def generate_base_model_response(model, tokenizer, prompt, max_new_tokens=512):
     """
     Generates a response from the base model for a given prompt.
     """
@@ -115,12 +116,18 @@ def calculate_win_rate(
         prompt = entry["prompt"]
         fine_tuned_response = entry["response"]
 
+        # logger.info(f"Prompt: {prompt}\n")
+
         # 1. Get response from the base model
         base_model_response = generate_base_model_response(base_model, base_tokenizer, prompt)
+
+        # logger.info(f"Base Model Response: {base_model_response}\n\n")
+        # logger.info(f"Fine Tuned Response: {fine_tuned_response}\n\n")
 
         # 2. Get reward scores
         fine_tuned_score = get_reward_score(reward_client, reward_model_name, prompt, fine_tuned_response)
         base_model_score = get_reward_score(reward_client, reward_model_name, prompt, base_model_response)
+        breakpoint()
 
         if fine_tuned_score is None or base_model_score is None:
             logger.warning(f"Skipping prompt '{prompt}' due to missing reward score.")
