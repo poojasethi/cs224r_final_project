@@ -37,7 +37,7 @@ class DPOTrainingArguments:
     sft_output_dir: str = "./sft_model"
     dpo_output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
-    fp16: bool = True # Set to True for mixed precision
+    fp16: bool = False # Set to True for mixed precision
     # Add gradient accumulation steps
     gradient_accumulation_steps: int = 32
 
