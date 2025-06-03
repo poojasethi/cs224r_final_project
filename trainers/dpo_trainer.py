@@ -152,10 +152,10 @@ class DPOTrainer:
         dispreferred_ids,
         dispreferred_a_masks,
     ):
-        beta = BETA # Use the global BETA constant
-
+        beta = BETA
+        
+         # Get reference model logits
         with torch.no_grad():
-            # Get reference model logits
             ref_pref_outputs = self.sft_model(
                 input_ids=preferred_ids,
                 attention_mask=preferred_a_masks,
@@ -205,7 +205,7 @@ class DPOTrainer:
             for step, batch in enumerate(progress_bar):
                 # Gradient accumulation context
                 with self.accelerator.accumulate(self.model):
-                    # 1. Run forward pass (with mixed precision handled by Accelerator).
+                    # 1. Run forward pass. 
                     pref_outputs = self.model(
                         input_ids=batch["preferred_ids"],
                         attention_mask=batch["preferred_a_masks"]
@@ -250,7 +250,7 @@ class DPOTrainer:
                         if global_steps % self.args.eval_steps == 0:
                             eval_loss = self.evaluate()
                             wandb.log({"eval_loss": eval_loss}, step=global_steps)
-                            self.model.train() # Set model back to train mode
+                            self.model.train() 
 
         # Save the final model after training is finished.
         # Use accelerator.save_model for proper distributed saving
@@ -259,7 +259,6 @@ class DPOTrainer:
                 self.args.dpo_output_dir, f"checkpoint-{global_steps}")
 
             os.makedirs(output_dir, exist_ok=True)
-            # Use unwrap_model to save the base model weights
             unwrapped_model = self.accelerator.unwrap_model(self.model)
             unwrapped_model.save_pretrained(output_dir)
             self.tokenizer.save_pretrained(output_dir)
