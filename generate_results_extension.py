@@ -12,6 +12,7 @@ import argparse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
 INITIAL_RESULTS_PATH = "evaluation/output/ultrafeedback_checkpoint.json"
 OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/ultrafeedback_teacher_model.json" # Detailed results
@@ -24,12 +25,12 @@ REWARD_MODEL_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # Teacher Model Configuration (Optional)
 # Using Qwen/Qwen2.5-1.5B-Instruct as the default teacher model
-TEACHER_MODEL_CHECKPOINT_PATH = "Qwen/Qwen2-7B-Instruct" 
+TEACHER_MODEL_CHECKPOINT_PATH = "Qwen/Qwen2.5-1.5B-Instruct" 
 TEACHER_MODEL_GEN_TEMPERATURE = 0.7
 TEACHER_MODEL_GEN_TOP_P = 0.95
 
 # Configuration for iterative refinement
-MAX_ITERATIONS = 2
+MAX_ITERATIONS = 1
 SCORE_IMPROVEMENT_THRESHOLD = 0.05
 MIN_ACCEPTABLE_SCORE = 0.7
 
@@ -119,34 +120,35 @@ def generate_and_refine(
     The student model generates the initial response. If enabled, the teacher model is used for refinement steps.
     """
     current_response = response.strip()
-    current_overall_score = -float('inf')
-    initial_overall_score = None
     num_iterations = 0
+
+    initial_overall_score = get_reward_score(reward_client, REWARD_MODEL_NAME, prompt, current_response)
+    logger.info(f"Initial score: {initial_overall_score}")
+
+    # logger.info(f"Prompt:\n{prompt}\n")
+    # logger.info(f"Initial Response:\n{current_response}\n")
+
+    current_best_score = initial_overall_score
+
+    if use_teacher_model and teacher_model and teacher_tokenizer:
+        logger.info(f"Refining response using teacher model ({TEACHER_MODEL_CHECKPOINT_PATH}).")
+        model = teacher_model
+        tokenizer = teacher_tokenizer
+        temperature = TEACHER_MODEL_GEN_TEMPERATURE
+        top_p = TEACHER_MODEL_GEN_TOP_P
+    else: # i > 0 but no teacher model for refinement, or not using it
+        logger.info(f"Iteration {i+1}: Refining response using student model.")
 
     for i in range(MAX_ITERATIONS):
         num_iterations = i + 1
         messages = []
-        
-        gen_model = model # Default to student model
-        gen_tokenizer = tokenizer # Default to student tokenizer
-        gen_temperature = temperature
-        gen_top_p = top_p
-
-        if use_teacher_model and teacher_model and teacher_tokenizer:
-            logger.info(f"Iteration {i+1}: Refining response using teacher model ({TEACHER_MODEL_CHECKPOINT_PATH}).")
-            gen_model = teacher_model
-            gen_tokenizer = teacher_tokenizer
-            gen_temperature = TEACHER_MODEL_GEN_TEMPERATURE
-            gen_top_p = TEACHER_MODEL_GEN_TOP_P
-        else: # i > 0 but no teacher model for refinement, or not using it
-            logger.info(f"Iteration {i+1}: Refining response using student model.")
         
          # Get feedback from the reward model (or a specific critic model if available)Add commentMore actions
         refinement_instruction = (
             "The response below may have not fully meet the quality criteria. "
             "Please revise the response to be more precise, helpful, honest, and truthful. "
             "Ensure you strictly follow the instruction and avoid any rambling or irrelevant information. "
-            "Only output the response and no other information. \n"
+            "Please only output the new response. Do not provide any explanations of changes that were made. \n"
             f"Here is the original instruction:\n{prompt}\n"
             f"Here is the response to revise:\n{current_response}\n"
         )
@@ -159,10 +161,9 @@ def generate_and_refine(
         messages = [
             {"role": "user", "content": refinement_instruction}
         ]
-        breakpoint()
-        text = gen_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         
-        tokenized = gen_tokenizer(
+        tokenized = tokenizer(
             text,
             padding="max_length",
             truncation=True,
@@ -171,58 +172,41 @@ def generate_and_refine(
         )
 
         # Move input_ids and attention_mask to the generation model's device
-        input_ids = tokenized['input_ids'].to(gen_model.device)
-        attention_mask = tokenized['attention_mask'].to(gen_model.device)
+        input_ids = tokenized['input_ids'].to(model.device)
+        attention_mask = tokenized['attention_mask'].to(model.device)
 
         try:
             with torch.no_grad():
-                output_ids = gen_model.generate( # Using model.generate from transformers
+                output_ids = model.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     max_new_tokens=max_new_tokens,
-                    temperature=gen_temperature,
-                    top_p=gen_top_p,
+                    temperature=temperature,
+                    top_p=top_p,
                     do_sample=do_sample,
-                    pad_token_id=gen_tokenizer.pad_token_id,
-                    eos_token_id=gen_tokenizer.eos_token_id,
-                    num_beams=1,
-                    repetition_penalty=1.3,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                    # num_beams=1,
+                    # repetition_penalty=1.1,
                 )
-            
-            start_index = input_ids.shape[1]
-            generated_tokens = output_ids[0, start_index:]
-            new_response_segment = gen_tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-            
-            current_response = new_response_segment
-            logger.info(f"Iteration {i+1} - Generated assistant response:\n{current_response}\n")
+            generated_tokens = output_ids[0, input_ids.shape[1]:]
+            generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+            current_response = generated_text
+            # logger.info(f"Iteration {i+1} Refined response:\n{current_response}\n")
 
             new_overall_score = get_reward_score(reward_client, REWARD_MODEL_NAME, prompt, current_response)
-
-            if new_overall_score is None:
-                logger.warning(f"Could not get reward score for iteration {i+1}. Stopping refinement for this prompt.")
-                break
-                
-            if i == 0:
-                initial_overall_score = new_overall_score
-            
-            logger.info(f"Iteration {i+1} - Nemotron Reward Score: {new_overall_score:.4f}")
-
-            if new_overall_score is not None and \
-               (new_overall_score > current_overall_score + SCORE_IMPROVEMENT_THRESHOLD or \
-                new_overall_score >= MIN_ACCEPTABLE_SCORE):
-                current_overall_score = new_overall_score
-                if new_overall_score >= MIN_ACCEPTABLE_SCORE and i > 0:
-                    logger.info(f"Stopping early: Satisfactory score reached ({new_overall_score:.4f}).")
-                    break
-            else:
-                logger.info(f"Stopping early: No significant improvement (current score {new_overall_score:.4f} vs previous best {current_overall_score:.4f}) or score decreased.")
-                break
+            if new_overall_score > current_best_score:
+                current_best_score = new_overall_score
+                logger.info(f"Score improved! New score: {current_best_score}.")
+            else: 
+                logger.info(f"Score did not improve. New score: {current_best_score}.")
 
         except Exception as e:
             logger.error(f"Error during generation in iteration {i+1}: {e}")
             break
             
-    return current_response, current_overall_score, num_iterations, initial_overall_score
+    return current_response, current_best_score, num_iterations, initial_overall_score
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Iterative response refinement script with optional teacher model for refinement.")
@@ -268,8 +252,7 @@ if __name__ == "__main__":
     prompts = input_df["prompt"].to_list()
     responses = input_df["response"].to_list()
 
-    progress_bar = tqdm(zip(prompts, responses), desc="Evaluating and Refining Responses")
-    
+    progress_bar = tqdm(list(zip(prompts, responses)))
     for step, (prompt, response) in enumerate(progress_bar):
         total_responses_processed += 1
         
