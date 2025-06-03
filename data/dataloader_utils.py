@@ -27,7 +27,7 @@ def get_dataloader(
             num_workers=2,  # Use multiple workers for faster data loading (adjust based on your system)
         )
     elif dataset_name == "ultrafeedback":
-        dataset = UltraFeedbackDataset()
+        dataset = UltraFeedbackDataset(split=split)
         # Create PyTorch dataloader.
         logger.info("Creating UltraFeedback DataLoader...")
         dataset_dataloader = DataLoader(

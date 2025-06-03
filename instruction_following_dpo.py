@@ -47,8 +47,8 @@ if __name__ == "__main__":
             wandb_project="pythia-dpo",
             wandb_run="instruction-following-ultrafeedback-dpo",
             model_id="EleutherAI/pythia-70m",
-            train_split="train[:1%]",
-            test_split="test[:1%]"
+            train_split="train_prefs[:1%]",
+            test_split="test_prefs[:1%]"
         )
         run_instruction_following_dpo(experiment_args)
     else: 
@@ -62,7 +62,8 @@ if __name__ == "__main__":
         experiment_args = DPOTrainingArguments(
             wandb_project="qwen-sft",
             wandb_run="instruction-following-ultrafeedback-dpo",
-            test_split="test[:1%]",
+            train_split="train_prefs",
+            test_split="test_prefs[:1%]",
             dpo_output_dir=output_dir,
             train_batch_size=1
         )
