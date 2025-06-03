@@ -137,7 +137,7 @@ def generate_and_refine(
         temperature = TEACHER_MODEL_GEN_TEMPERATURE
         top_p = TEACHER_MODEL_GEN_TOP_P
     else: # i > 0 but no teacher model for refinement, or not using it
-        logger.info(f"Iteration {i+1}: Refining response using student model.")
+        logger.info(f"Refining response using student model.")
 
     for i in range(MAX_ITERATIONS):
         num_iterations = i + 1
@@ -200,7 +200,7 @@ def generate_and_refine(
                 current_best_score = new_overall_score
                 logger.info(f"Score improved! New score: {current_best_score}.")
             else: 
-                logger.info(f"Score did not improve. New score: {current_best_score}.")
+                logger.info(f"Score did not improve. New score: {new_overall_score}.")
 
         except Exception as e:
             logger.error(f"Error during generation in iteration {i+1}: {e}")
