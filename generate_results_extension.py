@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-INPUT_JSON_PATH = "evaluation/input/ultrafeedback.json"
+INITIAL_RESULTS_PATH = "evaluation/output/ultrafeedback_checkpoint.json"
 OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/ultrafeedback_teacher_model.json" # Detailed results
 OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/ultrafeedback_teacher_model_final_responses.json" # New file for just prompt and final response
 
@@ -103,11 +103,12 @@ def generate_and_refine(
     model: AutoModelForCausalLM,
     reward_client: OpenAI,
     prompt: str,
+    response: str,
     device: str, # This 'device' is now primarily for logging, as device_map handles placement
     teacher_tokenizer: Optional[AutoTokenizer] = None,
     teacher_model: Optional[AutoModelForCausalLM] = None,
     use_teacher_model: bool = False, # New parameter for refinement
-    max_length: int = 512,
+    max_length: int = 1024,
     max_new_tokens: int = 512,
     temperature: float = 0.3,
     top_p: float = 0.9,
@@ -117,24 +118,21 @@ def generate_and_refine(
     Generates and iteratively refines a response using the model and Nemotron reward model.
     The student model generates the initial response. If enabled, the teacher model is used for refinement steps.
     """
-    current_response = ""
+    current_response = response.strip()
     current_overall_score = -float('inf')
     initial_overall_score = None
     num_iterations = 0
 
     for i in range(MAX_ITERATIONS):
         num_iterations = i + 1
-        messages = [{"role": "user", "content": prompt}]
+        messages = []
         
         gen_model = model # Default to student model
         gen_tokenizer = tokenizer # Default to student tokenizer
         gen_temperature = temperature
         gen_top_p = top_p
 
-        if i == 0:
-            logger.info(f"Iteration {i+1}: Generating initial response using student model.")
-            # Student model is always used for the first generation
-        elif i > 0 and use_teacher_model and teacher_model and teacher_tokenizer:
+        if use_teacher_model and teacher_model and teacher_tokenizer:
             logger.info(f"Iteration {i+1}: Refining response using teacher model ({TEACHER_MODEL_CHECKPOINT_PATH}).")
             gen_model = teacher_model
             gen_tokenizer = teacher_tokenizer
@@ -145,10 +143,12 @@ def generate_and_refine(
         
          # Get feedback from the reward model (or a specific critic model if available)Add commentMore actions
         refinement_instruction = (
-            "The previous response did not fully meet the quality criteria. "
-            "Please revise it to be more precise, helpful, honest, and truthful. "
-            "Ensure you strictly follow the original instruction and avoid any rambling or irrelevant information. "
-            "Respond ONLY with the revised and complete answer."
+            "The response below may have not fully meet the quality criteria. "
+            "Please revise the response to be more precise, helpful, honest, and truthful. "
+            "Ensure you strictly follow the instruction and avoid any rambling or irrelevant information. "
+            "Only output the response and no other information. \n"
+            f"Here is the original instruction:\n{prompt}\n"
+            f"Here is the response to revise:\n{current_response}\n"
         )
 
         # TODO: we could also prompt an LLM reward model for explicit critique.
@@ -156,13 +156,10 @@ def generate_and_refine(
         # critique = generate_from_critic_model(critic_prompt)
 
         # Construct the conversation history for refinement
-        # The model sees the original prompt, its previous attempt, and the refinement instruction.
         messages = [
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": current_response},
             {"role": "user", "content": refinement_instruction}
         ]
-
+        breakpoint()
         text = gen_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         
         tokenized = gen_tokenizer(
@@ -267,11 +264,13 @@ if __name__ == "__main__":
     )
     logger.info(f"Initialized OpenAI client for Nemotron Reward Model: {REWARD_MODEL_NAME}")
 
-    input_df = pd.read_json(INPUT_JSON_PATH, lines=True)
+    input_df = pd.read_json(INITIAL_RESULTS_PATH, lines=True)
     prompts = input_df["prompt"].to_list()
-    progress_bar = tqdm(prompts, desc="Evaluating and Refining Responses")
+    responses = input_df["response"].to_list()
+
+    progress_bar = tqdm(zip(prompts, responses), desc="Evaluating and Refining Responses")
     
-    for step, prompt in enumerate(progress_bar):
+    for step, (prompt, response) in enumerate(progress_bar):
         total_responses_processed += 1
         
         final_response, final_score, num_iterations, initial_score = generate_and_refine(
@@ -279,6 +278,7 @@ if __name__ == "__main__":
             model,
             reward_client,
             prompt,
+            response,
             device,
             teacher_tokenizer=teacher_tokenizer,
             teacher_model=teacher_model,
