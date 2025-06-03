@@ -276,19 +276,22 @@ if __name__ == "__main__":
                 responses_improved_count += 1
                 total_score_improvement += improvement_for_this_response
 
+        score_improved = improvement_for_this_response > 0.0
+
         detailed_output.append({
             "prompt": prompt,
             "initial_score": initial_score,
             "final_response": final_response,
             "final_score": final_score,
             "num_iterations": num_iterations,
+            "score_improved": score_improved,
             "score_improvement": improvement_for_this_response,
             "used_teacher_model_for_refinement": args.use_teacher_model
         })
 
         final_responses_output.append({
             "prompt": prompt,
-            "response": final_response
+            "response": final_response if score_improved else response
         })
 
     with open(OUTPUT_ITERATIVE_RESULTS_PATH, 'w') as f:
