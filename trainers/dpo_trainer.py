@@ -1,23 +1,22 @@
 import torch
 import os
 from transformers import (
-    AutoTokenizer, 
-    AutoModelForCausalLM, 
+    AutoTokenizer,
+    AutoModelForCausalLM,
     get_linear_schedule_with_warmup,
 )
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import wandb
 import logging
-import os
 from dataclasses import dataclass
-from accelerate import Accelerator  # Import Accelerator
-# from trainers.sft_trainer import CustomSFTTrainer
+from accelerate import Accelerator # Import Accelerator
+import torch.nn.functional as F # Import F for log_softmax
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./sft_model/checkpoint-20000/" 
+CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
 BETA = 0.2
 
 @dataclass
@@ -27,8 +26,8 @@ class DPOTrainingArguments:
     model_id: str = "Qwen/Qwen2.5-0.5B"
     train_split: str = "train"
     test_split: str = "test"
-    train_batch_size: int = 1
-    eval_batch_size: int = 1
+    train_batch_size: int = 2
+    eval_batch_size: int = 2
     epochs: int = 1
     learning_rate: float = 2e-5
     warmup_steps: int = 0
@@ -38,11 +37,11 @@ class DPOTrainingArguments:
     sft_output_dir: str = "./sft_model"
     dpo_output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
-    fp16: bool = False # True
+    fp16: bool = True # Set to True for mixed precision
     # Add gradient accumulation steps
     gradient_accumulation_steps: int = 32
 
-class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
+class DPOTrainer:
     def __init__(
         self,
         train_dataloader: DataLoader,
@@ -50,7 +49,7 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         args: DPOTrainingArguments,
     ):
         self.args = args
-        
+
         # Initialize Accelerator for distributed training and mixed precision
         self.accelerator = Accelerator(
             mixed_precision="fp16" if args.fp16 else "no",
@@ -58,11 +57,12 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         )
 
         logger.info(f"Loading sft model from {CHECKPOINT_PATH}...")
-        self.sft_model = AutoModelForCausalLM.from_pretrained(CHECKPOINT_PATH)
-        self.sft_model.eval()
+        torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32()
+        self.sft_model = AutoModelForCausalLM.from_pretrained(CHECKPOINT_PATH, device_map="auto", torch_dtype=torch_dtype)
+        self.sft_model.eval() # Ensure SFT model is in evaluation mode
 
-        # Load model and tokenizer from model_id
-        logger.info(f"Loading model and tokenizer from {args.model_id}")
+        # Load policy model and tokenizer from model_id
+        logger.info(f"Loading policy model and tokenizer from {args.model_id}")
         self.model = AutoModelForCausalLM.from_pretrained(args.model_id)
         self.tokenizer = AutoTokenizer.from_pretrained(args.model_id)
         if self.tokenizer.pad_token is None:
@@ -83,25 +83,29 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
             self.model.parameters(), lr=args.learning_rate
         )
 
-        # Initialize the learning rate scheduler. We use a linear scheduler.
         # Calculate total training steps considering gradient accumulation
-        num_steps_per_epoch = len(train_dataloader) // args.gradient_accumulation_steps
+        # Ensure num_steps_per_epoch is at least 1.
+        num_steps_per_epoch = max(1, len(train_dataloader) // args.gradient_accumulation_steps)
         num_training_steps = num_steps_per_epoch * args.epochs
+
+        # Initialize the learning rate scheduler. We use a linear scheduler.
         self.lr_scheduler = get_linear_schedule_with_warmup(
             self.optimizer,
             num_warmup_steps=args.warmup_steps,
             num_training_steps=num_training_steps,
         )
 
-        # Prepare everything for training with Accelerator
+        # Prepare things on accelerator
         (
             self.model,
+            self.sft_model, # Prepare sft_model as well
             self.optimizer,
             self.train_dataloader,
             self.eval_dataloader,
             self.lr_scheduler,
         ) = self.accelerator.prepare(
             self.model,
+            self.sft_model, # Prepare sft_model
             self.optimizer,
             self.train_dataloader,
             self.eval_dataloader,
@@ -112,144 +116,155 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
         self.device = self.accelerator.device
         logger.info(f"Using device {self.device}")
 
+    def get_log_probs(self, logits, labels, attention_mask):
+        """
+        Calculates the log probabilities of a sequence given model logits.
+        Args:
+            logits (torch.Tensor): Logits from the model (batch_size, sequence_length, vocab_size).
+            labels (torch.Tensor): Token IDs of the sequence (batch_size, sequence_length).
+            attention_mask (torch.Tensor): Attention mask (batch_size, sequence_length).
+        Returns:
+            torch.Tensor: Sum of log probabilities for each sequence in the batch.
+        """
+        # Shift logits and labels for causal language modeling
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        shift_attention_mask = attention_mask[..., 1:].contiguous()
+
+        # Calculate log probabilities
+        log_probs = F.log_softmax(shift_logits, dim=-1)
+
+        # Gather log probabilities for the true labels
+        # log_probs_labels shape: (batch_size, sequence_length - 1)
+        log_probs_labels = torch.gather(log_probs, dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(-1)
+
+        # Apply attention mask to only consider valid tokens
+        # Sum log probabilities for each sequence
+        sequence_log_probs = (log_probs_labels * shift_attention_mask).sum(dim=-1)
+        return sequence_log_probs
 
     def dpo_loss(
-        self,  
-        pref_outputs, 
-        dispref_outputs, 
-        preferred_ids, 
-        preferred_a_masks, 
-        dispreferred_ids, 
+        self,
+        pref_outputs_logits,
+        dispref_outputs_logits,
+        preferred_ids,
+        preferred_a_masks,
+        dispreferred_ids,
         dispreferred_a_masks,
-        ):
-
-        checkpoint_path = CHECKPOINT_PATH
-        beta = BETA
+    ):
+        beta = BETA # Use the global BETA constant
 
         with torch.no_grad():
-            # self.print_cuda_memory()
-            ref_pref_outputs = self.sft_model( # .generate
+            # Get reference model logits
+            ref_pref_outputs = self.sft_model(
                 input_ids=preferred_ids,
                 attention_mask=preferred_a_masks,
             )
-            ref_dispref_outputs = self.sft_model( # .generate
+            ref_dispref_outputs = self.sft_model(
                 input_ids=dispreferred_ids,
                 attention_mask=dispreferred_a_masks,
             )
-        # print("pref", pref_outputs.shape)
-        # print("ref pref", ref_pref_outputs.logits.shape)
-        wins = pref_outputs / ref_pref_outputs.logits
-        losses = dispref_outputs / ref_dispref_outputs.logits
-        inside_sig = beta * torch.log(wins) - beta * torch.log(losses)
-        inside_expect = torch.log(torch.sigmoid(inside_sig))
-        loss = - inside_expect.mean()
+
+        # Calculate log probs for policy model
+        log_probs_preferred_policy = self.get_log_probs(pref_outputs_logits, preferred_ids, preferred_a_masks)
+        log_probs_dispreferred_policy = self.get_log_probs(dispref_outputs_logits, dispreferred_ids, dispreferred_a_masks)
+
+        # Calculate log probs for reference model
+        log_probs_preferred_ref = self.get_log_probs(ref_pref_outputs.logits, preferred_ids, preferred_a_masks)
+        log_probs_dispreferred_ref = self.get_log_probs(ref_dispref_outputs.logits, dispreferred_ids, dispreferred_a_masks)
+
+        # Calculate the log-ratios, which are the correct "wins" and "losses" terms
+        # log_ratio_preferred corresponds to log(pi_policy(y_w|x) / pi_ref(y_w|x))
+        log_ratio_preferred = log_probs_preferred_policy - log_probs_preferred_ref
+
+        # log_ratio_dispreferred corresponds to log(pi_policy(y_l|x) / pi_ref(y_l|x))
+        log_ratio_dispreferred = log_probs_dispreferred_policy - log_probs_dispreferred_ref
+
+        # beta * (log_ratio_preferred - log_ratio_dispreferred)
+        dpo_score = beta * (log_ratio_preferred - log_ratio_dispreferred)
+
+        # The final DPO loss, analogous to original 'inside_expect' and final loss calculation
+        # L_DPO = - log(sigmoid(dpo_score))
+        loss = -F.logsigmoid(dpo_score).mean()
+
         return loss
 
-    def train(self):      # NOTE: Heavily copied from Pooja's SFT Train function
+    def train(self):
         """
         Kicks off DPO training.
         """
         logger.info("\n*******Running training**********\n")
         self.model.train()
 
-        self.train_dataloader, self.eval_dataloader = self.accelerator.prepare(
-            self.train_dataloader, self.eval_dataloader
-        )
-
-        # self.print_cuda_memory()
         global_steps = 0
         for epoch in range(self.args.epochs):
-            # Wrap dataloader with tqdm only on the main process
-            progress_bar = tqdm(
-                self.train_dataloader,
-                desc=f"Epoch {epoch + 1}/{self.args.epochs}",
-                disable=not self.accelerator.is_main_process,
-            )
+            progress_bar = tqdm(self.train_dataloader,
+                                desc=f"Epoch {epoch + 1}/{self.args.epochs}",
+                                disable=not self.accelerator.is_main_process) # Disable tqdm for non-main processes
 
             for step, batch in enumerate(progress_bar):
                 # Gradient accumulation context
                 with self.accelerator.accumulate(self.model):
-                    preferred_ids = batch["preferred_ids"]
-                    preferred_a_masks = batch["preferred_a_masks"]
-                    dispreferred_ids = batch['dispreferred_ids']
-                    dispreferred_a_masks = batch['dispreferred_a_masks']
-                    
-                    # 1. Run forward pass. Accelerator handles mixed precision.
+                    # 1. Run forward pass (with mixed precision handled by Accelerator).
                     pref_outputs = self.model(
-                        input_ids=preferred_ids,
-                        attention_mask=preferred_a_masks
+                        input_ids=batch["preferred_ids"],
+                        attention_mask=batch["preferred_a_masks"]
                     )
-                    # self.print_cuda_memory()
                     dispref_outputs = self.model(
-                        input_ids=dispreferred_ids,
-                        attention_mask=dispreferred_a_masks
+                        input_ids=batch["dispreferred_ids"],
+                        attention_mask=batch["dispreferred_a_masks"]
                     )
-                    # self.print_cuda_memory()
-                    # breakpoint()
-                    loss = self.dpo_loss(pref_outputs.logits, dispref_outputs.logits, preferred_ids, 
-                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
 
-                    # Scale loss for gradient accumulation
-                    loss = loss / self.args.gradient_accumulation_steps
+                    loss = self.dpo_loss(
+                        pref_outputs.logits,
+                        dispref_outputs.logits,
+                        batch["preferred_ids"],
+                        batch["preferred_a_masks"],
+                        batch["dispreferred_ids"],
+                        batch["dispreferred_a_masks"],
+                    )
 
-                    # 2. Run backward pass.
+                    # 2. Run backward pass using Accelerator
                     self.accelerator.backward(loss)
 
-                    # 3. Clip gradients and step the optimizer/scheduler
-                    if self.accelerator.sync_gradients:
-                        self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
-                        self.optimizer.step()
-                        self.lr_scheduler.step()
-                        self.optimizer.zero_grad()
+                    # 3. Clip gradients. This should be inside accumulate block, before implicit step.
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
 
                 # Log the training loss and current learning rate.
-                # Only log on the main process
+                # global_steps should be incremented on every batch, not just when sync_gradients is True
+                global_steps += 1
+
                 if self.accelerator.is_main_process:
-                    global_steps += (
-                        1  # Increment global_steps only on main process for logging
-                    )
-                    if global_steps % self.args.logging_steps == 0:
-                        current_lr = self.lr_scheduler.get_last_lr()[0]
-                        logs = {
-                            "train_loss": loss.item()
-                            * self.args.gradient_accumulation_steps,  # Unscale loss for logging
-                            "learning_rate": current_lr,
-                            "global_step": global_steps,
-                        }
-                        wandb.log(logs, step=global_steps)
+                    # Log and evaluate only when gradients are synced (i.e., after an actual optimizer step)
+                    if self.accelerator.sync_gradients:
+                        current_lr = self.lr_scheduler.get_last_lr()[0] # Get LR after scheduler step
+                        if global_steps % self.args.logging_steps == 0:
+                            logs = {
+                                "train_loss": loss.item(),
+                                "learning_rate": current_lr,
+                                "global_step": global_steps,
+                            }
+                            wandb.log(logs, step=global_steps)
+                            progress_bar.set_postfix(loss=loss.item(), lr=f"{current_lr:.2e}")
 
-                    # Log the evaluation loss.
-                    if global_steps % self.args.eval_steps == 0:
-                        eval_loss = self.evaluate()
-                        wandb.log({"eval_loss": eval_loss}, step=global_steps)
-                        logger.info(
-                            f"Running evaluation at {global_steps}, got loss: {eval_loss}"
-                        )
+                        if global_steps % self.args.eval_steps == 0:
+                            eval_loss = self.evaluate()
+                            wandb.log({"eval_loss": eval_loss}, step=global_steps)
+                            self.model.train() # Set model back to train mode
 
-                        # Set model back to train mode after doing evaluation.
-                        self.model.train()
-
-                    if global_steps % self.args.checkpoint_steps == 0:
-                        logger.info(f"Saving checkpoint after {global_steps}")
-                        output_dir = os.path.join(
-                            self.args.output_dir, f"checkpoint-{global_steps}"
-                        )
-                        os.makedirs(output_dir, exist_ok=True)
-                        # Use accelerator.save_model for proper saving in distributed setup
-                        self.accelerator.unwrap_model(self.model).save_pretrained(output_dir)
-                        self.tokenizer.save_pretrained(output_dir)
-
-        # Save the final model after training is finished. Only on the main process.
+        # Save the final model after training is finished.
+        # Use accelerator.save_model for proper distributed saving
         if self.accelerator.is_main_process:
             output_dir = os.path.join(
-                self.args.output_dir, f"checkpoint-{global_steps}"
-            )
+                self.args.dpo_output_dir, f"checkpoint-{global_steps}")
+
             os.makedirs(output_dir, exist_ok=True)
-            self.accelerator.unwrap_model(self.model).save_pretrained(output_dir)
+            # Use unwrap_model to save the base model weights
+            unwrapped_model = self.accelerator.unwrap_model(self.model)
+            unwrapped_model.save_pretrained(output_dir)
             self.tokenizer.save_pretrained(output_dir)
             logger.info(f"\nTraining complete! Model saved to {output_dir}")
             wandb.finish()
-
 
 
     @torch.no_grad()
@@ -259,47 +274,32 @@ class DPOTrainer:   # NOTE: Copied from Pooja's sft_trainer
 
         total_eval_loss = 0
         num_eval_batches = 0
-        for batch in tqdm(
-            self.eval_dataloader,
-            desc="Evaluating",
-            disable=not self.accelerator.is_main_process,
-        ):
-            # Accelerator already handled device placement for dataloader batches
-            preferred_ids = batch["preferred_ids"]
-            preferred_a_masks = batch["preferred_a_masks"]
-            dispreferred_ids = batch['dispreferred_ids']
-            dispreferred_a_masks = batch['dispreferred_a_masks']
-
+        # Disable tqdm for non-main processes during evaluation
+        for batch in tqdm(self.eval_dataloader, desc="Evaluating", disable=not self.accelerator.is_main_process):
+        
+            # Run forward pass for policy model
             pref_outputs = self.model(
-                input_ids=preferred_ids,
-                attention_mask=preferred_a_masks
+                input_ids=batch["preferred_ids"],
+                attention_mask=batch["preferred_a_masks"]
             )
-            # self.print_cuda_memory()
             dispref_outputs = self.model(
-                input_ids=dispreferred_ids,
-                attention_mask=dispreferred_a_masks
+                input_ids=batch["dispreferred_ids"],
+                attention_mask=batch["dispreferred_a_masks"]
             )
-            loss = self.dpo_loss(pref_outputs.logits, dispref_outputs.logits, preferred_ids, 
-                                    preferred_a_masks, dispreferred_ids, dispreferred_a_masks)  
+
+            # Calculate DPO loss for evaluation
+            loss = self.dpo_loss(
+                pref_outputs.logits,
+                dispref_outputs.logits,
+                batch["preferred_ids"],
+                batch["preferred_a_masks"],
+                batch["dispreferred_ids"],
+                batch["dispreferred_a_masks"],
+            )
 
             total_eval_loss += loss.item()
             num_eval_batches += 1
 
-        # Gather losses from all processes and average
-        total_eval_loss = (
-            self.accelerator.gather(torch.tensor(total_eval_loss).to(self.device))
-            .sum()
-            .item()
-        )
-        num_eval_batches = (
-            self.accelerator.gather(torch.tensor(num_eval_batches).to(self.device))
-            .sum()
-            .item()
-        )
-
         avg_eval_loss = total_eval_loss / num_eval_batches
         logger.info(f"Evaluation Loss: {avg_eval_loss:.4f}")
         return avg_eval_loss
-
-
-
