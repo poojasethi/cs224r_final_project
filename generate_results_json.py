@@ -11,9 +11,9 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./sft_model/checkpoint-100000/" 
+CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-04-084245/checkpoint-500/" 
 INPUT_JSON_PATH = "evaluation/input/ultrafeedback.json"
-OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_checkpoint.json"
+OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_checkpoint_dpo.json"
 
 def load_tokenizer_and_model(
     checkpoint_path = CHECKPOINT_PATH     
