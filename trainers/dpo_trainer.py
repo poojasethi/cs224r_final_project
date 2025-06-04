@@ -32,8 +32,8 @@ class DPOTrainingArguments:
     learning_rate: float = 3e-5
     warmup_steps: int = 0
     logging_steps: int = 10
-    eval_steps: int = 100
-    checkpoint_steps: int = 1000
+    eval_steps: int = 1000
+    checkpoint_steps: int = 15000
     output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
     fp16: bool = False # Set to True for mixed precision
