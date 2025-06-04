@@ -63,8 +63,8 @@ if __name__ == "__main__":
             wandb_project="qwen-sft",
             wandb_run="instruction-following-ultrafeedback-dpo",
             train_split="train_prefs",
-            test_split="test_prefs[:1%]",
-            dpo_output_dir=output_dir,
+            test_split="test_prefs[:25%]",
+            output_dir=output_dir,
             train_batch_size=1
         )
         run_instruction_following_dpo(experiment_args)

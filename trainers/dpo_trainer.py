@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-BETA = 0.2
+BETA = 0.35
 
 @dataclass
 class DPOTrainingArguments:
@@ -29,17 +29,16 @@ class DPOTrainingArguments:
     train_batch_size: int = 2
     eval_batch_size: int = 2
     epochs: int = 1
-    learning_rate: float = 2e-5
+    learning_rate: float = 3e-5
     warmup_steps: int = 0
     logging_steps: int = 10
     eval_steps: int = 100
-    checkpoint_steps: int = 100
-    sft_output_dir: str = "./sft_model"
-    dpo_output_dir: str = "./dpo_model"
+    checkpoint_steps: int = 1000
+    output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
     fp16: bool = False # Set to True for mixed precision
     # Add gradient accumulation steps
-    gradient_accumulation_steps: int = 32
+    gradient_accumulation_steps: int = 16
 
 class DPOTrainer:
     def __init__(
@@ -185,7 +184,7 @@ class DPOTrainer:
 
         # The final DPO loss, analogous to original 'inside_expect' and final loss calculation
         # L_DPO = - log(sigmoid(dpo_score))
-        loss = -F.logsigmoid(dpo_score).mean()
+        loss = -F.logsigmoid(dpo_score).mean() 
 
         return loss
 
@@ -230,45 +229,46 @@ class DPOTrainer:
                     # 3. Clip gradients. This should be inside accumulate block, before implicit step.
                     self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
 
+                # Log the training loss and current learning rate.
+                # Only log on the main process
                 if self.accelerator.is_main_process:
                     global_steps += (
                         1  # Increment global_steps only on main process for logging
                     )
 
                     # Log and evaluate only when gradients are synced (i.e., after an actual optimizer step)
-                    if self.accelerator.sync_gradients:
+                    if global_steps % self.args.logging_steps == 0:
                         current_lr = self.lr_scheduler.get_last_lr()[0] # Get LR after scheduler step
-                        if global_steps % self.args.logging_steps == 0:
-                            logs = {
-                                "train_loss": loss.item() * self.args.gradient_accumulation_steps, # Unscale loss for logging
-                                "learning_rate": current_lr,
-                                "global_step": global_steps,
-                            }
-                            wandb.log(logs, step=global_steps)
-                            progress_bar.set_postfix(loss=loss.item(), lr=f"{current_lr:.2e}")
+                        logs = {
+                            "train_loss": loss.item() * self.args.gradient_accumulation_steps, # Unscale loss for logging
+                            "learning_rate": current_lr,
+                            "global_step": global_steps,
+                        }
+                        wandb.log(logs, step=global_steps)
+                        progress_bar.set_postfix(loss=loss.item(), lr=f"{current_lr:.2e}")
 
-            
-                         # Log the evaluation loss.
-                        if global_steps % self.args.eval_steps == 0:
-                            eval_loss = self.evaluate()
-                            wandb.log({"eval_loss": eval_loss}, step=global_steps)
-                            logger.info(
-                                f"Running evaluation at {global_steps}, got loss: {eval_loss}"
-                            )
+    
+                    # Log the evaluation loss.
+                    if global_steps % self.args.eval_steps == 0:
+                        eval_loss = self.evaluate()
+                        wandb.log({"eval_loss": eval_loss}, step=global_steps)
+                        logger.info(
+                            f"Running evaluation at {global_steps}, got loss: {eval_loss}"
+                        )
 
-                            # Set model back to train mode after doing evaluation.
-                            self.model.train()
+                        # Set model back to train mode after doing evaluation.
+                        self.model.train()
 
-                        # Save the checkpoint.
-                        if global_steps % self.args.checkpoint_steps == 0:
-                            logger.info(f"Saving checkpoint after {global_steps}")
-                            output_dir = os.path.join(
-                                self.args.output_dir, f"checkpoint-{global_steps}"
-                            )
-                            os.makedirs(output_dir, exist_ok=True)
-                            # Use accelerator.save_model for proper saving in distributed setup
-                            self.accelerator.unwrap_model(self.model).save_pretrained(output_dir)
-                            self.tokenizer.save_pretrained(output_dir)
+                    # Save the checkpoint.
+                    if global_steps % self.args.checkpoint_steps == 0:
+                        logger.info(f"Saving checkpoint after {global_steps}")
+                        output_dir = os.path.join(
+                            self.args.output_dir, f"checkpoint-{global_steps}"
+                        )
+                        os.makedirs(output_dir, exist_ok=True)
+                        # Use accelerator.save_model for proper saving in distributed setup
+                        self.accelerator.unwrap_model(self.model).save_pretrained(output_dir)
+                        self.tokenizer.save_pretrained(output_dir)
 
         # Save the final model after training is finished.
         # Use accelerator.save_model for proper distributed saving
@@ -317,6 +317,18 @@ class DPOTrainer:
             total_eval_loss += loss.item()
             num_eval_batches += 1
 
+        # Gather losses from all processes and average
+        total_eval_loss = (
+            self.accelerator.gather(torch.tensor(total_eval_loss).to(self.device))
+            .sum()
+            .item()
+        )
+        num_eval_batches = (
+            self.accelerator.gather(torch.tensor(num_eval_batches).to(self.device))
+            .sum()
+            .item()
+        )
+
         avg_eval_loss = total_eval_loss / num_eval_batches
         logger.info(f"Evaluation Loss: {avg_eval_loss:.4f}")
-        return avg_eval_loss
+        return avg_eval_loss 
