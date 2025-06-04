@@ -223,11 +223,19 @@ class DPOTrainer:
                         batch["dispreferred_a_masks"],
                     )
 
-                    # 2. Run backward pass using Accelerator
+                    # Scale loss for gradient accumulation
+                    loss = loss / self.args.gradient_accumulation_steps
+
+                    # 2. Run backward pass.
                     self.accelerator.backward(loss)
 
-                    # 3. Clip gradients. This should be inside accumulate block, before implicit step.
-                    self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
+                    # 3. Clip gradients and step the optimizer/scheduler
+                    if self.accelerator.sync_gradients:
+                        logger.info(f"Running backward pass after global step: {global_steps}")
+                        self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
+                        self.optimizer.step()
+                        self.lr_scheduler.step()
+                        self.optimizer.zero_grad() 
 
                 # Log the training loss and current learning rate.
                 # Only log on the main process
