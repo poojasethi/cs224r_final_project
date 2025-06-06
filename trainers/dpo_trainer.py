@@ -11,13 +11,14 @@ import wandb
 import logging
 from dataclasses import dataclass
 from accelerate import Accelerator 
+from torchtune.rlhf.loss import DPOLoss
 import torch.nn.functional as F
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-BETA = 0.35
+BETA = 0.2
 
 @dataclass
 class DPOTrainingArguments:
@@ -29,7 +30,7 @@ class DPOTrainingArguments:
     train_batch_size: int = 2
     eval_batch_size: int = 2
     epochs: int = 1
-    learning_rate: float = 3e-5
+    learning_rate: float = 2e-5
     warmup_steps: int = 0
     logging_steps: int = 10
     eval_steps: int = 1000
@@ -165,26 +166,39 @@ class DPOTrainer:
             )
 
         # Calculate log probs for policy model
-        log_probs_preferred_policy = self.get_log_probs(pref_outputs_logits, preferred_ids, preferred_a_masks)
-        log_probs_dispreferred_policy = self.get_log_probs(dispref_outputs_logits, dispreferred_ids, dispreferred_a_masks)
+        policy_log_probs_preferred = self.get_log_probs(pref_outputs_logits, preferred_ids, preferred_a_masks)
+        policy_log_probs_dispreferred = self.get_log_probs(dispref_outputs_logits, dispreferred_ids, dispreferred_a_masks)
 
         # Calculate log probs for reference model
-        log_probs_preferred_ref = self.get_log_probs(ref_pref_outputs.logits, preferred_ids, preferred_a_masks)
-        log_probs_dispreferred_ref = self.get_log_probs(ref_dispref_outputs.logits, dispreferred_ids, dispreferred_a_masks)
+        ref_log_probs_preferred = self.get_log_probs(ref_pref_outputs.logits, preferred_ids, preferred_a_masks)
+        ref_log_probs_dispreferred = self.get_log_probs(ref_dispref_outputs.logits, dispreferred_ids, dispreferred_a_masks)
 
-        # Calculate the log-ratios, which are the correct "wins" and "losses" terms
+        # Calculate the log-ratios, which are the "wins" and "losses" terms
         # log_ratio_preferred corresponds to log(pi_policy(y_w|x) / pi_ref(y_w|x))
-        log_ratio_preferred = log_probs_preferred_policy - log_probs_preferred_ref
+        log_ratio_preferred = policy_log_probs_preferred - ref_log_probs_preferred
 
         # log_ratio_dispreferred corresponds to log(pi_policy(y_l|x) / pi_ref(y_l|x))
-        log_ratio_dispreferred = log_probs_dispreferred_policy - log_probs_dispreferred_ref
+        log_ratio_dispreferred = policy_log_probs_dispreferred - ref_log_probs_dispreferred
 
         # beta * (log_ratio_preferred - log_ratio_dispreferred)
         dpo_score = beta * (log_ratio_preferred - log_ratio_dispreferred)
 
+        # Clamp the DPO score for numerical stability.
+        dpo_score = torch.clamp(dpo_score, -50, 50)
+
         # The final DPO loss, analogous to original 'inside_expect' and final loss calculation
         # L_DPO = - log(sigmoid(dpo_score))
         loss = -F.logsigmoid(dpo_score).mean() 
+
+        # Sanity check our loss value matches the torchtune DPO loss. 
+        # We do not use the below version for training!!
+        # loss_fn = DPOLoss(beta=BETA)
+        # dpo_loss = loss_fn(
+        #     policy_log_probs_preferred,
+        #     policy_log_probs_dispreferred,
+        #     ref_log_probs_preferred,
+        #     ref_log_probs_dispreferred
+        # )
 
         return loss
 
