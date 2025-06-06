@@ -174,13 +174,6 @@ class UltraFeedbackDataset(Dataset):
         # print("done tokenizing")
 
     def _tokenize_example(self, example):
-        prompts = self.tokenizer(
-            "Prompt: " + example["prompt"] + "\n",
-            padding='max_length',
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
         chosen = self.tokenizer(
             self.tokenizer.apply_chat_template(example["chosen"], tokenize=False),
             padding='max_length',
@@ -195,11 +188,11 @@ class UltraFeedbackDataset(Dataset):
             max_length=self.max_length,
             return_tensors='pt'
         )
-
-        preferred_ids = torch.cat([prompts.input_ids, chosen.input_ids], dim=-1).squeeze(0)
-        preferred_a_masks = torch.cat([prompts.attention_mask, chosen.attention_mask], dim=-1).squeeze(0)
-        dispreferred_ids = torch.cat([prompts.input_ids, rejected.input_ids], dim=-1).squeeze(0)
-        dispreferred_a_masks = torch.cat([prompts.attention_mask, rejected.attention_mask], dim=-1).squeeze(0)
+        
+        preferred_ids = chosen.input_ids.squeeze(0)
+        preferred_a_masks = chosen.attention_mask.squeeze(0)
+        dispreferred_ids = rejected.input_ids.squeeze(0)
+        dispreferred_a_masks = rejected.attention_mask.squeeze(0)
         return {
             'preferred_ids' : preferred_ids,
             'preferred_a_masks' : preferred_a_masks,
