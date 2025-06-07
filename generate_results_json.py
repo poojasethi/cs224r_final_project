@@ -11,7 +11,7 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-04-084245/checkpoint-500/" 
+CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-06-224951/checkpoint-45000/" 
 INPUT_JSON_PATH = "evaluation/input/ultrafeedback.json"
 OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_checkpoint_dpo.json"
 
