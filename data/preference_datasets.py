@@ -291,8 +291,12 @@ class UltraFeedbackDataset(Dataset):
         example_chosen[1]["content"] = example_chosen[1]["content"]  + tokenizer.eos_token
         example_rejected[1]["content"] = example_rejected[1]["content"] + tokenizer.eos_token
 
+        # Add EOS tokens to prevent model from rambling.
+        example_chosen[1]["content"] = example_chosen[1]["content"]  + self.tokenizer.eos_token
+        example_rejected[1]["content"] = example_rejected[1]["content"] + self.tokenizer.eos_token
+
         chosen = self.tokenizer(
-            self.tokenizer.apply_chat_template(example_chosen, tokenize=False),
+            self.tokenizer.apply_chat_template(example_chosen, tokenize=False, add_generation_prompt=False),
             padding='max_length',
             truncation=True,
             max_length=MAX_LENGTH,
@@ -300,7 +304,7 @@ class UltraFeedbackDataset(Dataset):
             padding_side="right",
         )
         rejected = self.tokenizer(
-            self.tokenizer.apply_chat_template(example_rejected, tokenize=False),
+            self.tokenizer.apply_chat_template(example_rejected, tokenize=False, add_generation_prompt=False),
             padding='max_length',
             truncation=True,
             max_length=MAX_LENGTH,
