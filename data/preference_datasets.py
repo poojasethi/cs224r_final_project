@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Maxium lengths in terms of # of tokens.
-MAX_PROMPT_LENGTH = 256
+MAX_PROMPT_LENGTH = 512
 MAX_RESPONSE_LENGTH = 1024
 MAX_LENGTH = MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH
 
@@ -21,8 +21,8 @@ MAX_LENGTH = MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH
 TOKEN_TO_WORD_RATIO = 0.70
 
 # Calculate maxium lengths in terms of # of words.
-MAX_PROMPT_WORD_COUNT = MAX_PROMPT_LENGTH * TOKEN_TO_WORD_RATIO 
-MAX_RESPONSE_WORD_COUNT = MAX_RESPONSE_LENGTH * TOKEN_TO_WORD_RATIO
+MAX_PROMPT_WORD_COUNT = int(MAX_PROMPT_LENGTH * TOKEN_TO_WORD_RATIO) 
+MAX_RESPONSE_WORD_COUNT = int(MAX_RESPONSE_LENGTH * TOKEN_TO_WORD_RATIO)
 
 """
 Datasets for preference learning task.
@@ -38,9 +38,9 @@ class SmolTalkDataset(Dataset):
         tokenizer="Qwen/Qwen2.5-0.5B",
         max_length=MAX_LENGTH,
     ):
-        logger.info(f"Loading data from {path}")
+        print(f"Loading data from {path}")
         self.dataset = load_dataset(path, split=split)
-        logger.info(f"Loaded {len(self.dataset)} samples.")
+        print(f"Loaded {len(self.dataset)} samples.")
 
         self.tokenizer = get_tokenizer(tokenizer)
         self.max_length = max_length
@@ -167,9 +167,9 @@ class SmolTalkDataset(Dataset):
 #         tokenizer="Qwen/Qwen2.5-0.5B",
 #         max_length=MAX_LENGTH,
 #     ):
-#         logger.info(f"Loading data from {path}")
+#         print(f"Loading data from {path}")
 #         raw_dataset = load_dataset(path, split=split)
-#         logger.info(f"Loaded {len(raw_dataset)} samples.")
+#         print(f"Loaded {len(raw_dataset)} samples.")
 
 #         self.tokenizer = get_tokenizer(tokenizer)
 #         self.max_length = max_length
@@ -227,17 +227,23 @@ class UltraFeedbackDataset(Dataset):
         split="train_prefs[:1%]",
         tokenizer_path="Qwen/Qwen2.5-0.5B",
     ):
-        logger.info(f"Loading data from {path}")
+        print(f"Loading data from {path}")
         raw_dataset = load_dataset(path, split=split)
-        logger.info(f"Loaded {len(raw_dataset)} samples.")
+        print(f"Loaded {len(raw_dataset)} samples.")
 
         self.tokenizer = get_tokenizer(tokenizer_path)
 
         self.dataset = []
-        for example in raw_dataset:
+        skipped_examples = 0
+        progress_bar = tqdm(raw_dataset)
+        for example in progress_bar:
             tokenized_example = self._tokenize_example(example)
-            self.dataset.append(tokenized_example)
-        logger.info(f"Tokenized {len(self.dataset)} samples.")
+            if tokenized_example:
+                self.dataset.append(tokenized_example)
+            else: 
+                skipped_examples += 1
+        print(f"Tokenized {len(self.dataset)} valid samples.")
+        print(f"Skipped {skipped_examples} examples due to prompt being too long.")
 
     def _tokenize_example(self, example):
         example_chosen = example["chosen"]
@@ -251,18 +257,21 @@ class UltraFeedbackDataset(Dataset):
         # Truncate the prompt to reasonable maximum number of words.
         prompt_split = prompt.split()
         if len(prompt_split) > MAX_PROMPT_WORD_COUNT:
-            logger.info(f"Prompt was longer than expected ({len(prompt_split)}), trimming.")
-            prompt_truncated = " ".join(prompt_split[:MAX_PROMPT_WORD_COUNT])
+            print(f"Prompt was longer than expected ({len(prompt_split)} words), can be no more than {MAX_PROMPT_WORD_COUNT}.")
+            # prompt_truncated = " ".join(prompt_split[:MAX_PROMPT_WORD_COUNT])
 
-            # Update the examples to use the truncated prompt.
-            example_chosen[0]["content"] = prompt_truncated
-            example_rejected[0]["content"] = prompt_truncated
+            # # Update the examples to use the truncated prompt.
+            # example_chosen[0]["content"] = prompt_truncated
+            # example_rejected[0]["content"] = prompt_truncated
+            
+            # Skip examples that have super long prompts. Our test set only has short prompts.
+            return None
 
         # Truncate the chosen response to a reasonable maximum number of words.
         chosen_response = example_chosen[1]["content"]
         chosen_response_split = chosen_response.split()
         if len(chosen_response_split) > MAX_RESPONSE_WORD_COUNT:
-            logger.info(f"Chosen reponse was longer than expected ({len(chosen_response_split)}), trimming.")
+            print(f"Chosen reponse was longer than expected ({len(chosen_response_split)} words), trimming to {MAX_RESPONSE_WORD_COUNT}.")
             chosen_truncated = " ".join(chosen_response_split[:MAX_RESPONSE_WORD_COUNT])
 
             # Update the examples to use the truncated response.
@@ -272,7 +281,7 @@ class UltraFeedbackDataset(Dataset):
         rejected_response = example_rejected[1]["content"]
         rejected_response_split = rejected_response.split()
         if len(rejected_response_split) > MAX_RESPONSE_WORD_COUNT:
-            logger.info(f"Rejfected reponse was longer than expected ({len(rejected_response_split)}), trimming.")
+            print(f"Rejected reponse was longer than expected ({len(rejected_response_split)} words), trimming to {MAX_RESPONSE_WORD_COUNT}.")
             rejected_truncated = " ".join(rejected_response_split[:MAX_RESPONSE_WORD_COUNT])
 
             # Update the examples to use the truncated response.
