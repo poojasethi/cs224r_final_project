@@ -11,9 +11,18 @@ from functools import partial
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Maxium lengths in terms of # of tokens.
 MAX_PROMPT_LENGTH = 256
-MAX_RESPONSE_LENGTH = 256
+MAX_RESPONSE_LENGTH = 1024
 MAX_LENGTH = MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH
+
+# Use the approximation that each token is ~3/4 of a word.
+# Slightly less to account for special tokens we might add.
+TOKEN_TO_WORD_RATIO = 0.70
+
+# Calculate maxium lengths in terms of # of words.
+MAX_PROMPT_WORD_COUNT = MAX_PROMPT_LENGTH * TOKEN_TO_WORD_RATIO 
+MAX_RESPONSE_WORD_COUNT = MAX_RESPONSE_LENGTH * TOKEN_TO_WORD_RATIO
 
 """
 Datasets for preference learning task.
@@ -147,45 +156,140 @@ class SmolTalkDataset(Dataset):
             "labels": masked_labels.squeeze(0)
         }
 
+# class UltraFeedbackDataset(Dataset):
+#     """
+#     UltraFeedback dataset for DPO and RLOO.
+#     """
+#     def __init__(
+#         self,
+#         path="HuggingFaceH4/ultrafeedback_binarized",
+#         split="train_prefs[:1%]",
+#         tokenizer="Qwen/Qwen2.5-0.5B",
+#         max_length=MAX_LENGTH,
+#     ):
+#         logger.info(f"Loading data from {path}")
+#         raw_dataset = load_dataset(path, split=split)
+#         logger.info(f"Loaded {len(raw_dataset)} samples.")
 
+#         self.tokenizer = get_tokenizer(tokenizer)
+#         self.max_length = max_length
+
+#         self.dataset = []
+#         for example in raw_dataset:
+#             tokenized = self._tokenize_example(example)
+#             self.dataset.append(tokenized)
+#         # print("done tokenizing")
+
+#     def _tokenize_example(self, example):
+#         example_chosen = example["chosen"]
+#         example_rejected = example["rejected"]
+
+#         chosen = self.tokenizer(
+#             self.tokenizer.apply_chat_template(example["chosen"], tokenize=False),
+#             padding='max_length',
+#             truncation=True,
+#             max_length=self.max_length,
+#             return_tensors='pt'
+#         )
+#         rejected = self.tokenizer(
+#             self.tokenizer.apply_chat_template(example["rejected"], tokenize=False),
+#             padding='max_length',
+#             truncation=True,
+#             max_length=self.max_length,
+#             return_tensors='pt'
+#         )
+        
+#         preferred_ids = chosen.input_ids.squeeze(0)
+#         preferred_a_masks = chosen.attention_mask.squeeze(0)
+#         dispreferred_ids = rejected.input_ids.squeeze(0)
+#         dispreferred_a_masks = rejected.attention_mask.squeeze(0)
+#         return {
+#             'preferred_ids' : preferred_ids,
+#             'preferred_a_masks' : preferred_a_masks,
+#             'dispreferred_ids' : dispreferred_ids,
+#             'dispreferred_a_masks' : dispreferred_a_masks,
+#         }
+
+#     def __getitem__(self, idx):
+#         return self.dataset[idx]
+
+#     def __len__(self):
+#         return len(self.dataset)
 
 class UltraFeedbackDataset(Dataset):
     """
     UltraFeedback dataset for DPO and RLOO.
+    Fixed version of the original dataset to correctly truncate.
     """
     def __init__(
         self,
         path="HuggingFaceH4/ultrafeedback_binarized",
         split="train_prefs[:1%]",
-        tokenizer="Qwen/Qwen2.5-0.5B",
-        max_length=MAX_LENGTH,
+        tokenizer_path="Qwen/Qwen2.5-0.5B",
     ):
         logger.info(f"Loading data from {path}")
         raw_dataset = load_dataset(path, split=split)
         logger.info(f"Loaded {len(raw_dataset)} samples.")
 
-        self.tokenizer = get_tokenizer(tokenizer)
-        self.max_length = max_length
+        self.tokenizer = get_tokenizer(tokenizer_path)
 
         self.dataset = []
         for example in raw_dataset:
-            tokenized = self._tokenize_example(example)
-            self.dataset.append(tokenized)
-        # print("done tokenizing")
+            tokenized_example = self._tokenize_example(example)
+            self.dataset.append(tokenized_example)
+        logger.info(f"Tokenized {len(self.dataset)} samples.")
 
     def _tokenize_example(self, example):
+        example_chosen = example["chosen"]
+        example_rejected = example["rejected"]
+
+        prompt_chosen = example_chosen[0]["content"]
+        prompt_rejected = example_rejected[0]["content"]
+        assert prompt_chosen == prompt_rejected, "Prompts between chosen and reject should match."
+        prompt = prompt_chosen
+
+        # Truncate the prompt to reasonable maximum number of words.
+        prompt_split = prompt.split()
+        if len(prompt_split) > MAX_PROMPT_WORD_COUNT:
+            logger.info(f"Prompt was longer than expected ({len(prompt_split)}), trimming.")
+            prompt_truncated = " ".join(prompt_split[:MAX_PROMPT_WORD_COUNT])
+
+            # Update the examples to use the truncated prompt.
+            example_chosen[0]["content"] = prompt_truncated
+            example_rejected[0]["content"] = prompt_truncated
+
+        # Truncate the chosen response to a reasonable maximum number of words.
+        chosen_response = example_chosen[1]["content"]
+        chosen_response_split = chosen_response.split()
+        if len(chosen_response_split) > MAX_RESPONSE_WORD_COUNT:
+            logger.info(f"Chosen reponse was longer than expected ({len(chosen_response_split)}), trimming.")
+            chosen_truncated = " ".join(chosen_response_split[:MAX_RESPONSE_WORD_COUNT])
+
+            # Update the examples to use the truncated response.
+            example_chosen[1]["content"] = chosen_truncated
+
+        # Truncate the rejected response to a reasonable maximum number of words.
+        rejected_response = example_rejected[1]["content"]
+        rejected_response_split = rejected_response.split()
+        if len(rejected_response_split) > MAX_RESPONSE_WORD_COUNT:
+            logger.info(f"Rejfected reponse was longer than expected ({len(rejected_response_split)}), trimming.")
+            rejected_truncated = " ".join(rejected_response_split[:MAX_RESPONSE_WORD_COUNT])
+
+            # Update the examples to use the truncated response.
+            example_rejected[1]["content"] = rejected_truncated
+
         chosen = self.tokenizer(
-            self.tokenizer.apply_chat_template(example["chosen"], tokenize=False),
+            self.tokenizer.apply_chat_template(example_chosen, tokenize=False),
             padding='max_length',
             truncation=True,
-            max_length=self.max_length,
+            max_length=MAX_LENGTH,
             return_tensors='pt'
         )
         rejected = self.tokenizer(
-            self.tokenizer.apply_chat_template(example["rejected"], tokenize=False),
+            self.tokenizer.apply_chat_template(example_rejected, tokenize=False),
             padding='max_length',
             truncation=True,
-            max_length=self.max_length,
+            max_length=MAX_LENGTH,
             return_tensors='pt'
         )
         
@@ -193,6 +297,7 @@ class UltraFeedbackDataset(Dataset):
         preferred_a_masks = chosen.attention_mask.squeeze(0)
         dispreferred_ids = rejected.input_ids.squeeze(0)
         dispreferred_a_masks = rejected.attention_mask.squeeze(0)
+
         return {
             'preferred_ids' : preferred_ids,
             'preferred_a_masks' : preferred_a_masks,
@@ -200,12 +305,11 @@ class UltraFeedbackDataset(Dataset):
             'dispreferred_a_masks' : dispreferred_a_masks,
         }
 
-    def __getitem__(self, idx):
-        return self.dataset[idx]
-
     def __len__(self):
         return len(self.dataset)
-    
+
+    def __getitem__(self, idx):
+        return self.dataset[idx]
 
 
 
