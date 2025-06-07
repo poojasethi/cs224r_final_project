@@ -79,8 +79,8 @@ class DPOTrainer:
             )
             wandb.watch(self.model, log_freq=args.logging_steps)
 
-        # Initialize the optimizer. Use 
-        self.optimizer = torch.optim.RMSprop(
+        # Initialize the optimizer. We use AdamW.
+        self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=args.learning_rate
         )
 
