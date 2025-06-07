@@ -4,6 +4,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     get_linear_schedule_with_warmup,
+    get_constant_schedule_with_warmup,
 )
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -24,14 +25,14 @@ BETA = 0.1
 class DPOTrainingArguments:
     wandb_project: str = "qwen-dpo"
     wandb_run: str = "instruction-following-ultrafeedback-dpo"
-    model_id: str = "Qwen/Qwen2.5-0.5B"
+    model_id: str = # "Qwen/Qwen2.5-0.5B"
     train_split: str = "train"
     test_split: str = "test"
     train_batch_size: int = 2
     eval_batch_size: int = 2
     epochs: int = 1
     learning_rate: float = 1e-6
-    warmup_steps: int = 0
+    warmup_steps: int = 200
     logging_steps: int = 100
     eval_steps: int = 1000
     checkpoint_steps: int = 10000
@@ -89,10 +90,9 @@ class DPOTrainer:
         num_training_steps = num_steps_per_epoch * args.epochs
 
         # Initialize the learning rate scheduler. We use a linear scheduler.
-        self.lr_scheduler = get_linear_schedule_with_warmup(
+        self.lr_scheduler = get_constant_schedule_with_warmup(
             self.optimizer,
             num_warmup_steps=args.warmup_steps,
-            num_training_steps=num_training_steps,
         )
 
         # Prepare things on accelerator

@@ -65,6 +65,6 @@ if __name__ == "__main__":
             train_split="train_prefs",
             test_split="test_prefs[:25%]",
             output_dir=output_dir,
-            train_batch_size=1
+            train_batch_size=2
         )
         run_instruction_following_dpo(experiment_args)
