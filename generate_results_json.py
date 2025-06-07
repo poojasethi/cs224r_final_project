@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-06-224951/checkpoint-45000/" 
-INPUT_JSON_PATH = "evaluation/input/ultrafeedback.json"
-OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_checkpoint_dpo.json"
+INPUT_JSON_PATH = "evaluation/input/ultrafeedback_heldout_prompt.json"
+OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_heldout_prompts_checkpoint_dpo_45000.json"
 
 def load_tokenizer_and_model(
     checkpoint_path = CHECKPOINT_PATH     
@@ -49,7 +49,12 @@ def generate_from_checkpoint(
     max_length: int = 512,
     max_new_tokens: int = 512,
     temperature: float = 0.3,
-    top_p: float = 0.9,
+    top_p: float = 0.95,
+    top_k: int = 20,
+    num_beams=1,
+    repetition_penalty=1.3,            # Helps avoid tail-end babbling
+    no_repeat_ngram_size=4,            # Prevents repeating phrases
+    early_stopping=False,               # Ends when EOS is likely
     do_sample: bool = True,
     device: str = "auto"
 ) -> str:
@@ -62,7 +67,7 @@ def generate_from_checkpoint(
 
     # Use chat template to truncated messages
     text = tokenizer.apply_chat_template(
-        message, tokenize=False, add_generation_pompt=True
+        message, tokenize=False, add_generation_prompt=True
     )
     
     tokenized = tokenizer(
@@ -92,11 +97,17 @@ def generate_from_checkpoint(
                 do_sample=do_sample,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                num_beams=1,
-                repetition_penalty=1.3,
+                # top_k=top_k,
+                num_beams=num_beams,
+                repetition_penalty=repetition_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                early_stopping=early_stopping
             )
+        
         generated_tokens = output_ids[0, input_ids.shape[1]:]
         generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        # generated_text = generated_text.split("<|im_end|>")[0].strip()
+
         logger.info(f"Generated assistant response (from model):\n{generated_text}\n")
     except Exception as e:
         logger.info(f"Error during generation: {e}")

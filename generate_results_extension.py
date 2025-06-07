@@ -13,10 +13,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-INITIAL_RESULTS_PATH = "evaluation/output/ultrafeedback_checkpoint.json"
-OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/ultrafeedback_teacher_model.json" # Detailed results
-OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/ultrafeedback_teacher_model_final_responses.json" # New file for just prompt and final response
+CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-06-224951/checkpoint-60000/"
+INITIAL_RESULTS_PATH = "evaluation/output/ultrafeedback_checkpoint_dpo.json"
+OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/ultrafeedback_dpo_teacher_model.json" # Detailed results
+OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/ultrafeedback_dpo_teacher_model_final_responses.json" # New file for just prompt and final response
 
 # Nemotron Reward Model configuration
 REWARD_MODEL_API_KEY = os.getenv("REWARD_MODEL_API_KEY", "")
