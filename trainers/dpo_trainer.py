@@ -296,7 +296,7 @@ class DPOTrainer:
         # Use accelerator.save_model for proper distributed saving
         if self.accelerator.is_main_process:
             output_dir = os.path.join(
-                self.args.dpo_output_dir, f"checkpoint-{global_steps}")
+                self.args.output_dir, f"checkpoint-{global_steps}")
 
             os.makedirs(output_dir, exist_ok=True)
             unwrapped_model = self.accelerator.unwrap_model(self.model)
