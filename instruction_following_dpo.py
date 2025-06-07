@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def run_instruction_following_dpo(args: DPOTrainingArguments):
-    logger.info(f"Training model {args.model_id}")
+    print(f"Training model {args.model_id}")
 
     train_dataloader = get_dataloader(
         dataset_name="ultrafeedback",
@@ -56,7 +56,7 @@ if __name__ == "__main__":
         date_time_string = now.strftime("%y-%m-%d-%H%M%S")
         output_dir = f"checkpoints/dpo_model_{date_time_string}"
         os.makedirs(output_dir)
-        logger.info(f"Kicking off dpo training and saving results to {output_dir}")
+        print(f"Kicking off dpo training and saving results to {output_dir}")
 
         # Kick off a full experiment
         experiment_args = DPOTrainingArguments(
