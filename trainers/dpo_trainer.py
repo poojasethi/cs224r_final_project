@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-BETA = 0.2
+BETA = 0.1
 
 @dataclass
 class DPOTrainingArguments:
@@ -30,7 +30,7 @@ class DPOTrainingArguments:
     train_batch_size: int = 2
     eval_batch_size: int = 2
     epochs: int = 1
-    learning_rate: float = 2e-5
+    learning_rate: float = 1e-6
     warmup_steps: int = 0
     logging_steps: int = 100
     eval_steps: int = 1000

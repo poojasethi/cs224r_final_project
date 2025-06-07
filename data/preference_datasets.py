@@ -292,14 +292,16 @@ class UltraFeedbackDataset(Dataset):
             padding='max_length',
             truncation=True,
             max_length=MAX_LENGTH,
-            return_tensors='pt'
+            return_tensors='pt',
+            padding_side="right",
         )
         rejected = self.tokenizer(
             self.tokenizer.apply_chat_template(example_rejected, tokenize=False),
             padding='max_length',
             truncation=True,
             max_length=MAX_LENGTH,
-            return_tensors='pt'
+            return_tensors='pt',
+            padding_side="right",
         )
         
         preferred_ids = chosen.input_ids.squeeze(0)
