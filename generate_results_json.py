@@ -11,9 +11,9 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-06-224951/checkpoint-45000/" 
+CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-07-102513/checkpoint-30000/" 
 INPUT_JSON_PATH = "evaluation/input/ultrafeedback_heldout_prompt.json"
-OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_heldout_prompts_checkpoint_dpo_45000.json"
+OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_heldout_prompts_v2_dpo_30000.json"
 
 def load_tokenizer_and_model(
     checkpoint_path = CHECKPOINT_PATH     
@@ -47,13 +47,13 @@ def generate_from_checkpoint(
     model: AutoModelForCausalLM,
     prompt: str,
     max_length: int = 512,
-    max_new_tokens: int = 512,
+    max_new_tokens: int = 1024,
     temperature: float = 0.3,
-    top_p: float = 0.95,
+    top_p: float = 0.9,
     top_k: int = 20,
     num_beams=1,
     repetition_penalty=1.3,            # Helps avoid tail-end babbling
-    no_repeat_ngram_size=4,            # Prevents repeating phrases
+    no_repeat_ngram_size=2,            # Prevents repeating phrases
     early_stopping=False,               # Ends when EOS is likely
     do_sample: bool = True,
     device: str = "auto"
