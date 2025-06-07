@@ -286,6 +286,10 @@ class UltraFeedbackDataset(Dataset):
 
             # Update the examples to use the truncated response.
             example_rejected[1]["content"] = rejected_truncated
+        
+        # Add EOS tokens to prevent model from rambling.
+        example_chosen[1]["content"] = example_chosen[1]["content"]  + tokenizer.eos_token
+        example_rejected[1]["content"] = example_rejected[1]["content"] + tokenizer.eos_token
 
         chosen = self.tokenizer(
             self.tokenizer.apply_chat_template(example_chosen, tokenize=False),
