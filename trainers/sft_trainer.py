@@ -168,6 +168,7 @@ class CustomSFTTrainer:
                             "global_step": global_steps,
                         }
                         wandb.log(logs, step=global_steps)
+                        progress_bar.set_postfix(loss=loss.item(), lr=f"{current_lr:.2e}")
 
                     # Log the evaluation loss.
                     if global_steps % self.args.eval_steps == 0:
