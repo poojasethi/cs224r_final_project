@@ -25,17 +25,17 @@ BETA = 0.1
 class DPOTrainingArguments:
     wandb_project: str = "qwen-dpo"
     wandb_run: str = "instruction-following-ultrafeedback-dpo"
-    model_id: str = # "Qwen/Qwen2.5-0.5B"
+    model_id: str = "Qwen/Qwen2.5-0.5B"
     train_split: str = "train"
     test_split: str = "test"
     train_batch_size: int = 2
     eval_batch_size: int = 2
-    epochs: int = 1
+    epochs: int = 2
     learning_rate: float = 1e-6
     warmup_steps: int = 200
     logging_steps: int = 100
-    eval_steps: int = 100
-    checkpoint_steps: int = 10000
+    eval_steps: int = 1000
+    checkpoint_steps: int = 5000
     output_dir: str = "./dpo_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
     fp16: bool = False # Set to True for mixed precision
@@ -92,8 +92,7 @@ class DPOTrainer:
         # Initialize the learning rate scheduler. We use a linear scheduler.
         self.lr_scheduler = get_constant_schedule_with_warmup(
             self.optimizer,
-            num_warmup_steps=args.warmup_steps,
-            num_training_steps=num_training_steps,
+            num_warmup_steps=args.warmup_steps, 
         )
 
         # Prepare things on accelerator
@@ -133,6 +132,8 @@ class DPOTrainer:
         shift_attention_mask = attention_mask[..., 1:].contiguous()
 
         # Calculate log probabilities
+        # TODO: Make sure log probs include EOS token.
+        # TODO: Log total probability of preferred samples vs. dispreferred samples
         log_probs = F.log_softmax(shift_logits, dim=-1)
 
         # Gather log probabilities for the true labels
@@ -154,8 +155,8 @@ class DPOTrainer:
         dispreferred_a_masks,
     ):
         beta = BETA
-        
-         # Get reference model logits
+          
+        # Get reference model logits
         with torch.no_grad():
             ref_pref_outputs = self.sft_model(
                 input_ids=preferred_ids,
@@ -173,7 +174,7 @@ class DPOTrainer:
         # Calculate log probs for reference model
         ref_log_probs_preferred = self.get_log_probs(ref_pref_outputs.logits, preferred_ids, preferred_a_masks)
         ref_log_probs_dispreferred = self.get_log_probs(ref_dispref_outputs.logits, dispreferred_ids, dispreferred_a_masks)
-
+        
         # Calculate the log-ratios, which are the "wins" and "losses" terms
         # log_ratio_preferred corresponds to log(pi_policy(y_w|x) / pi_ref(y_w|x))
         log_ratio_preferred = policy_log_probs_preferred - ref_log_probs_preferred
