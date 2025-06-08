@@ -42,15 +42,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.debug:
-        # Use a small model and dataset that can run on cpu for debugging locally.
+        now = datetime.datetime.now()
+        date_time_string = now.strftime("%y-%m-%d-%H%M%S")
+        output_dir = f"checkpoints/dpo_model_debug_{date_time_string}"
+        os.makedirs(output_dir)
+        print(f"Kicking off dpo training and saving results to {output_dir}")
+
+        # Kick off a full experiment
         experiment_args = DPOTrainingArguments(
-            wandb_project="pythia-dpo",
+            wandb_project="qwen-sft",
             wandb_run="instruction-following-ultrafeedback-dpo",
-            model_id="EleutherAI/pythia-70m",
             train_split="train_prefs[:1%]",
-            test_split="test_prefs[:1%]"
+            test_split="test_prefs[:1%]",
+            output_dir=output_dir,
+            train_batch_size=2
         )
-        run_instruction_following_dpo(experiment_args)
+        run_instruction_following_dpo(experiment_args) 
     else: 
         now = datetime.datetime.now()
         date_time_string = now.strftime("%y-%m-%d-%H%M%S")
