@@ -39,43 +39,77 @@ class SmolTalkDataset(Dataset):
         max_length=MAX_LENGTH,
     ):
         print(f"Loading data from {path}")
-        self.dataset = load_dataset(path, split=split)
-        print(f"Loaded {len(self.dataset)} samples.")
+        raw_dataset = load_dataset(path, split=split)
+        print(f"Loaded {len(raw_dataset)} samples.")
 
-        self.tokenizer = get_tokenizer(tokenizer)
         self.max_length = max_length
+        self.tokenizer = get_tokenizer(tokenizer)
+        self.dataset = []
+        
+        skipped_examples = 0
+        progress_bar = tqdm(raw_dataset)
+        for example in progress_bar:
+            tokenized_example = self._tokenize_example(example)
+            if tokenized_example:
+                self.dataset.append(tokenized_example)
+            else: 
+                skipped_examples += 1
+        print(f"Tokenized {len(self.dataset)} valid samples.")
+        print(f"Skipped {skipped_examples} examples due to prompt being too long.")
 
-    def _apply_chat_template_and_tokenize(self, messages: List[Dict]) -> Dict[str, torch.Tensor]:
+    def _tokenize_example(self, example: List[Dict]) -> Dict[str, torch.Tensor]:
         """
         Applies chat template, tokenizes, and creates labels for SFT for a single example.
         """
         # Truncate the chat to be at most 2 in length (one user + one assistant).
         truncated_messages = []
-        if len(messages) > 2:
-            user_msg = None
-            assistant_msg = None
-            # Go through messages in reverse to find the last user-assistant pair
-            for msg in reversed(messages):
-                if msg["role"] == "assistant" and assistant_msg is None:
-                    assistant_msg = msg
-                elif msg["role"] == "user" and user_msg is None and assistant_msg is not None:
-                    user_msg = msg
-                    break
-            # If both found, use them; otherwise use the original messages
-            if user_msg and assistant_msg:
-                truncated_messages.append([user_msg, assistant_msg])
-            else:
-                truncated_messages.append(messages[-2:] if len(messages) >= 2 else messages)
-        else:
-            truncated_messages.append(messages)
-            
+        user_msg = None
+        assistant_msg = None
+
+        messages = example["messages"]
+
+        # Go through messages to find the first user-assistant pair.
+        for msg in messages:
+            if msg["role"] == "user" and user_msg is None:
+                user_msg = msg
+            if msg["role"] == "assistant" and assistant_msg is None:
+                assistant_msg = msg
+    
+        prompt = user_msg["content"]
+        prompt_split = prompt.split()
+        if len(prompt_split) > MAX_PROMPT_WORD_COUNT:
+            print(f"Prompt was longer than expected ({len(prompt_split)} words), can be no more than {MAX_PROMPT_WORD_COUNT}.")
+            # prompt_truncated = " ".join(prompt_split[:MAX_PROMPT_WORD_COUNT])
+            # # Update the examples to use the truncated prompt.
+            # example_chosen[0]["content"] = prompt_truncated
+            # example_rejected[0]["content"] = prompt_truncated
+            # Skip examples that have super long prompts. Our test set only has short prompts.
+            return None
+
+        # Truncate the chosen response to a reasonable maximum number of words.
+        response = assistant_msg["content"]
+        response_split = response.split()
+        if len(response_split) > MAX_RESPONSE_WORD_COUNT:
+            print(f"Chosen reponse was longer than expected ({len(response_split)} words), trimming to {MAX_RESPONSE_WORD_COUNT}.")
+            response_truncated = " ".join(response_split[:MAX_RESPONSE_WORD_COUNT])
+
+            # Update the examples to use the truncated response.
+            response = response_truncated 
+        
+        # Add EOS tokens to prevent model from rambling.
+        response = response + self.tokenizer.eos_token 
+        assistant_msg["content"] = response
+
+        truncated_messages.append(user_msg)
+        truncated_messages.append(assistant_msg)
+ 
         # Use chat template to truncated messages
-        texts = self.tokenizer.apply_chat_template(
+        templated_messages= self.tokenizer.apply_chat_template(
             truncated_messages, tokenize=False
         )
-        
+
         tokenized = self.tokenizer(
-            texts,
+            templated_messages,
             padding="max_length",
             truncation=True,
             max_length=self.max_length,
@@ -84,77 +118,167 @@ class SmolTalkDataset(Dataset):
         
         # Create labels for SFT training
         tokenized["labels"] = tokenized["input_ids"].clone()
-        return tokenized
 
-    def _mask_query_tokens(self, input_ids: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """
-        Mask out the query tokens so that loss is only computed on assistant responses for a single example.
-        """
-        # Remove the batch dimension added by the tokenizer when processing a single item.
-        current_input_ids = input_ids.squeeze(0)
-        current_labels = labels.squeeze(0)
+        ##### The below steps mask the query tokens so that they don't contribute to the loss. ###
+        prompt_tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
+        response_tokens = self.tokenizer.encode(response, add_special_tokens=False) 
 
-        # Method 1: Look for Qwen's chat template markers
-        decoded = self.tokenizer.decode(current_input_ids, skip_special_tokens=False)
-        assistant_marker = "<|im_start|>assistant"
-        assistant_start_idx = None
+        templated_prompt = self.tokenizer.apply_chat_template(
+            [user_msg], tokenize=False, add_generation_prompt=True
+        )
 
-        if assistant_marker in decoded:
-            # Find the position after the assistant marker
-            marker_pos = decoded.find(assistant_marker)
-            if marker_pos != -1:
-                # Get text up to and including the marker
-                prefix = decoded[:marker_pos + len(assistant_marker)]
-                # Add newline if it's typically there
-                if decoded[marker_pos + len(assistant_marker):marker_pos + len(assistant_marker) + 1] == '\n':
-                    prefix += '\n'
-                # Encode prefix to find where assistant content starts
-                prefix_tokens = self.tokenizer.encode(prefix, add_special_tokens=False)
-                assistant_start_idx = len(prefix_tokens)
-        
-        # Second method: if assistant marker not found
-        if assistant_start_idx is None:
-            # Look for "assistant" token sequence
-            assistant_token = self.tokenizer.encode("assistant", add_special_tokens=False)
-            if assistant_token:
-                tokens = current_input_ids.tolist()
-                for j in range(len(tokens) - len(assistant_token) + 1):
-                    if tokens[j:j+len(assistant_token)] == assistant_token:
-                        assistant_start_idx = j + len(assistant_token)
-                        # Skip any formatting tokens after "assistant"
-                        while (assistant_start_idx < len(tokens) and 
-                                tokens[assistant_start_idx] in [self.tokenizer.pad_token_id, 
-                                                                 self.tokenizer.eos_token_id]):
-                            assistant_start_idx += 1
-                        break
-        
-        # If assistant start found, mask everything before it
-        if assistant_start_idx is not None and assistant_start_idx < len(current_labels):
-            current_labels[:assistant_start_idx] = -100
-        else:
-            # Fallback: if assistant start not found, mask the first half
-            mask_length = len(current_labels) // 2
-            current_labels[:mask_length] = -100
-        
-        # Mask padding tokens
-        current_labels[current_input_ids == self.tokenizer.pad_token_id] = -100
-        
-        return current_labels.unsqueeze(0)
+        prompt_tokenized = self.tokenizer(
+            templated_prompt,
+            truncation=False,
+            add_special_tokens=False,
+            return_tensors="pt",
+        ) 
+        prompt_input_id_len = len(prompt_tokenized["input_ids"].squeeze(0)) 
 
+        # Update the labels so that the prompt token ids don't contribute to the loss.
+        tokenized["labels"][:, :prompt_input_id_len] = -100
+
+        return {
+            "input_ids": tokenized["input_ids"].squeeze(0),
+            "attention_mask": tokenized["attention_mask"].squeeze(0),
+            "labels": tokenized["labels"].squeeze(0)
+        }
+    
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, idx):
-        item = self.dataset[idx]
+        return self.dataset[idx]
+
+# class SmolTalkDataset(Dataset):
+#     """
+#     SmolTalk dataset for SFT.
+#     """
+#     def __init__(
+#         self,
+#         path="HuggingFaceTB/smol-smoltalk",
+#         split="train[:1%]", # Consider using an even smaller split for initial testing
+#         tokenizer="Qwen/Qwen2.5-0.5B",
+#         max_length=MAX_LENGTH,
+#     ):
+#         print(f"Loading data from {path}")
+#         self.dataset = load_dataset(path, split=split)
+#         print(f"Loaded {len(self.dataset)} samples.")
+
+#         self.tokenizer = get_tokenizer(tokenizer)
+#         self.max_length = max_length
+
+#     def _apply_chat_template_and_tokenize(self, messages: List[Dict]) -> Dict[str, torch.Tensor]:
+#         """
+#         Applies chat template, tokenizes, and creates labels for SFT for a single example.
+#         """
+#         # Truncate the chat to be at most 2 in length (one user + one assistant).
+#         truncated_messages = []
+#         if len(messages) > 2:
+#             user_msg = None
+#             assistant_msg = None
+#             # Go through messages in reverse to find the last user-assistant pair
+#             for msg in reversed(messages):
+#                 if msg["role"] == "assistant" and assistant_msg is None:
+#                     assistant_msg = msg
+#                 elif msg["role"] == "user" and user_msg is None and assistant_msg is not None:
+#                     user_msg = msg
+#                     break
+#             # If both found, use them; otherwise use the original messages
+#             if user_msg and assistant_msg:
+#                 truncated_messages.append([user_msg, assistant_msg])
+#             else:
+#                 truncated_messages.append(messages[-2:] if len(messages) >= 2 else messages)
+#         else:
+#             truncated_messages.append(messages)
+            
+#         # Use chat template to truncated messages
+#         texts = self.tokenizer.apply_chat_template(
+#             truncated_messages, tokenize=False
+#         )
         
-        tokenized_item = self._apply_chat_template_and_tokenize(item["messages"])
-        masked_labels = self._mask_query_tokens(tokenized_item["input_ids"], tokenized_item["labels"])
+#         tokenized = self.tokenizer(
+#             texts,
+#             padding="max_length",
+#             truncation=True,
+#             max_length=self.max_length,
+#             return_tensors="pt",
+#         )
         
-        return {
-            "input_ids": tokenized_item["input_ids"].squeeze(0),
-            "attention_mask": tokenized_item["attention_mask"].squeeze(0),
-            "labels": masked_labels.squeeze(0)
-        }
+#         # Create labels for SFT training
+#         tokenized["labels"] = tokenized["input_ids"].clone()
+#         return tokenized
+
+#     def _mask_query_tokens(self, input_ids: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+#         """
+#         Mask out the query tokens so that loss is only computed on assistant responses for a single example.
+#         """
+#         # Remove the batch dimension added by the tokenizer when processing a single item.
+#         current_input_ids = input_ids.squeeze(0)
+#         current_labels = labels.squeeze(0)
+
+#         # Method 1: Look for Qwen's chat template markers
+#         decoded = self.tokenizer.decode(current_input_ids, skip_special_tokens=False)
+#         assistant_marker = "<|im_start|>assistant"
+#         assistant_start_idx = None
+
+#         if assistant_marker in decoded:
+#             # Find the position after the assistant marker
+#             marker_pos = decoded.find(assistant_marker)
+#             if marker_pos != -1:
+#                 # Get text up to and including the marker
+#                 prefix = decoded[:marker_pos + len(assistant_marker)]
+#                 # Add newline if it's typically there
+#                 if decoded[marker_pos + len(assistant_marker):marker_pos + len(assistant_marker) + 1] == '\n':
+#                     prefix += '\n'
+#                 # Encode prefix to find where assistant content starts
+#                 prefix_tokens = self.tokenizer.encode(prefix, add_special_tokens=False)
+#                 assistant_start_idx = len(prefix_tokens)
+        
+#         # Second method: if assistant marker not found
+#         if assistant_start_idx is None:
+#             # Look for "assistant" token sequence
+#             assistant_token = self.tokenizer.encode("assistant", add_special_tokens=False)
+#             if assistant_token:
+#                 tokens = current_input_ids.tolist()
+#                 for j in range(len(tokens) - len(assistant_token) + 1):
+#                     if tokens[j:j+len(assistant_token)] == assistant_token:
+#                         assistant_start_idx = j + len(assistant_token)
+#                         # Skip any formatting tokens after "assistant"
+#                         while (assistant_start_idx < len(tokens) and 
+#                                 tokens[assistant_start_idx] in [self.tokenizer.pad_token_id, 
+#                                                                  self.tokenizer.eos_token_id]):
+#                             assistant_start_idx += 1
+#                         break
+        
+#         # If assistant start found, mask everything before it
+#         if assistant_start_idx is not None and assistant_start_idx < len(current_labels):
+#             current_labels[:assistant_start_idx] = -100
+#         else:
+#             # Fallback: if assistant start not found, mask the first half
+#             mask_length = len(current_labels) // 2
+#             current_labels[:mask_length] = -100
+        
+#         # Mask padding tokens
+#         current_labels[current_input_ids == self.tokenizer.pad_token_id] = -100
+        
+#         return current_labels.unsqueeze(0)
+
+#     def __len__(self):
+#         return len(self.dataset)
+
+#     def __getitem__(self, idx):
+#         item = self.dataset[idx]
+        
+#         tokenized_item = self._apply_chat_template_and_tokenize(item["messages"])
+#         masked_labels = self._mask_query_tokens(tokenized_item["input_ids"], tokenized_item["labels"])
+        
+#         return {
+#             "input_ids": tokenized_item["input_ids"].squeeze(0),
+#             "attention_mask": tokenized_item["attention_mask"].squeeze(0),
+#             "labels": masked_labels.squeeze(0)
+#         }
+
 
 # class UltraFeedbackDataset(Dataset):
 #     """
@@ -289,11 +413,7 @@ class UltraFeedbackDataset(Dataset):
         
         # Add EOS tokens to prevent model from rambling.
         example_chosen[1]["content"] = example_chosen[1]["content"]  + self.tokenizer.eos_token
-        example_rejected[1]["content"] = example_rejected[1]["content"] + self.tokenizer.eos_token
-
-        # Add EOS tokens to prevent model from rambling.
-        example_chosen[1]["content"] = example_chosen[1]["content"]  + self.tokenizer.eos_token
-        example_rejected[1]["content"] = example_rejected[1]["content"] + self.tokenizer.eos_token
+        example_rejected[1]["content"] = example_rejected[1]["content"] + self.tokenizer.eos_token 
 
         chosen = self.tokenizer(
             self.tokenizer.apply_chat_template(example_chosen, tokenize=False, add_generation_prompt=False),
