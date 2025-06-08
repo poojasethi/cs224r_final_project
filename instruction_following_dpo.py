@@ -70,7 +70,7 @@ if __name__ == "__main__":
             wandb_project="qwen-sft",
             wandb_run="instruction-following-ultrafeedback-dpo",
             train_split="train_prefs",
-            test_split="test_prefs[:25%]",
+            test_split="test_prefs[:10%]",
             output_dir=output_dir,
             train_batch_size=2
         )
