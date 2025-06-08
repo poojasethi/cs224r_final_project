@@ -41,15 +41,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.debug:
-        # Use a small model and dataset that can run on cpu for debugging locally.
+        now = datetime.datetime.now()
+        date_time_string = now.strftime("%y-%m-%d-%H%M%S")
+        output_dir = f"checkpoints/sft_model_debug_{date_time_string}"
+        os.makedirs(output_dir)
+        logger.info(f"Kicking off sft training and saving results to {output_dir}")
+
+        # Kick off a full experiment
         experiment_args = SFTTrainingArguments(
-            wandb_project="pythia-sft",
+            wandb_project="qwen-sft",
             wandb_run="instruction-following-smoltalk-sft",
-            model_id="EleutherAI/pythia-70m",
             train_split="train[:1%]",
-            test_split="test[:1%]"
+            test_split="test[:1%]",
+            output_dir=output_dir,
         )
-        run_instruction_following_sft(experiment_args)
+        run_instruction_following_sft(experiment_args) 
     else: 
         now = datetime.datetime.now()
         date_time_string = now.strftime("%y-%m-%d-%H%M%S")
