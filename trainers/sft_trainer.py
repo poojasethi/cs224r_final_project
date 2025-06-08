@@ -30,7 +30,7 @@ class SFTTrainingArguments:
     warmup_steps: int = 100
     logging_steps: int = 100
     eval_steps: int = 1000
-    checkpoint_steps: int = 20000
+    checkpoint_steps: int = 5000
     output_dir: str = "./sft_model"
     # Turn on mixed precision training to reduce memory usage and speed up training.
     fp16: bool = True
