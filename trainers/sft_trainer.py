@@ -27,8 +27,8 @@ class SFTTrainingArguments:
     eval_batch_size: int = 2
     epochs: int = 1
     learning_rate: float = 2e-5
-    warmup_steps: int = 0
-    logging_steps: int = 10
+    warmup_steps: int = 100
+    logging_steps: int = 100
     eval_steps: int = 1000
     checkpoint_steps: int = 20000
     output_dir: str = "./sft_model"
