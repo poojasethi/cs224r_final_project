@@ -63,9 +63,9 @@ class DPOTrainer:
         self.sft_model.eval() # Ensure SFT model is in evaluation mode
 
         # Load policy model and tokenizer from model_id
-        logger.info(f"Loading policy model and tokenizer from {args.model_id}")
-        self.model = AutoModelForCausalLM.from_pretrained(args.model_id)
-        self.tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+        logger.info(f"Loading policy model and tokenizer from {CHECKPOINT_PATH}")
+        self.model = AutoModelForCausalLM.from_pretrained(CHECKPOINT_PATH)
+        self.tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT_PATH)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
