@@ -288,8 +288,8 @@ class UltraFeedbackDataset(Dataset):
             example_rejected[1]["content"] = rejected_truncated
         
         # Add EOS tokens to prevent model from rambling.
-        example_chosen[1]["content"] = example_chosen[1]["content"]  + tokenizer.eos_token
-        example_rejected[1]["content"] = example_rejected[1]["content"] + tokenizer.eos_token
+        example_chosen[1]["content"] = example_chosen[1]["content"]  + self.tokenizer.eos_token
+        example_rejected[1]["content"] = example_rejected[1]["content"] + self.tokenizer.eos_token
 
         # Add EOS tokens to prevent model from rambling.
         example_chosen[1]["content"] = example_chosen[1]["content"]  + self.tokenizer.eos_token
