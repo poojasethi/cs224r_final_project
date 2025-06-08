@@ -11,9 +11,11 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-07-102513/checkpoint-40000/" 
+# CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-07-102513/checkpoint-40000/" 
+# CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
+CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-005552/checkpoint-60000/"
 INPUT_JSON_PATH = "evaluation/input/ultrafeedback_heldout_prompt.json"
-OUTPUT_JSON_PATH = "evaluation/output/ultrafeedback_heldout_prompts_v2_dpo_40000.json"
+OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_original_1000000.json"
 
 def load_tokenizer_and_model(
     checkpoint_path = CHECKPOINT_PATH     
@@ -82,7 +84,7 @@ def generate_from_checkpoint(
     attention_mask = tokenized['attention_mask'][0].unsqueeze(0).to(model.device) 
 
     # 1. Decode the original input to the model (user query + assistant prompt)
-    original_input_text = tokenizer.decode(input_ids[0], skip_special_tokens=False)
+    original_input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
     logger.info(f"Origal input to model:\n{original_input_text}\n")
 
     # 2. Generate the fine-tuned model's response.
