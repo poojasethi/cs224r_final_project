@@ -16,13 +16,18 @@ INPUT_JSON_PATH = "evaluation/input/ultrafeedback_heldout_prompt.json"
 
 # Update below to use the right model.
 # CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-07-102513/checkpoint-40000/" 
-# CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
 
 # CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-35000/"
 # OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_35000.json"
 
-CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-95000/"
-OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_95000.json"
+# CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-95000/"
+# OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_95000.json"
+
+# CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-09-030935/checkpoint-15000/"
+# OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_dpo_model_25-06-09-030935_15000.json"
+
+CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-09-030935/checkpoint-25000/"
+OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_dpo_model_25-06-09-030935_25000.json"
 
 def load_tokenizer_and_model(
     checkpoint_path = CHECKPOINT_PATH     
@@ -56,10 +61,10 @@ def generate_from_checkpoint(
     model: AutoModelForCausalLM,
     prompt: str,
     max_length: int = 512,
-    max_new_tokens: int = 1024,
-    temperature: float = 0.1,
-    top_p: float = 0.9,
-    top_k: int = 50,
+    max_new_tokens: int = 756,
+    temperature: float = 0.2,
+    top_p: float = 0.90,
+    top_k: int = 20,
     num_beams=1,
     repetition_penalty=1.3,            # Helps avoid tail-end babbling
     no_repeat_ngram_size=2,            # Prevents repeating phrases
@@ -106,7 +111,7 @@ def generate_from_checkpoint(
                 do_sample=do_sample,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                # top_k=top_k,
+                top_k=top_k,
                 num_beams=num_beams,
                 repetition_penalty=repetition_penalty,
                 no_repeat_ngram_size=no_repeat_ngram_size,
