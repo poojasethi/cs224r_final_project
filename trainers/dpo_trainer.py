@@ -18,7 +18,10 @@ import torch.nn.functional as F
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
+# CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
+# Switch to new SFT checkpoint.
+CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-95000/"
+
 BETA = 0.1
 
 @dataclass
