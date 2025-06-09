@@ -160,8 +160,8 @@ if __name__ == "__main__":
     teacher_client = OpenAI(api_key=TEACHER_MODEL_API_KEY)
 
     input_df = pd.read_json(INITIAL_RESULTS_PATH, lines=True)
-    prompts = input_df["prompt"].to_list()[:3]
-    responses = input_df["response"].to_list()[:3]
+    prompts = input_df["prompt"].to_list()
+    responses = input_df["response"].to_list()
 
     initial_scores = []
     final_scores = []
