@@ -3,7 +3,7 @@ Final project for CS224R: Deep Reinforcement Learning. RL Fine-Tuning of Languag
 
 ## Activate conda environment
 ```
-conda env create --name rl_llm python=3.12
+conda env create --n rl_llm python=3.12
 conda activate rl_llm
 pip install torch torchao torchtune transformers datasets
 pip install accelerate wandb openai
