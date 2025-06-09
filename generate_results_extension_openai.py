@@ -8,15 +8,16 @@ from tqdm.auto import tqdm
 import pandas as pd
 from typing import Dict, Any, Tuple, Optional
 import argparse
+from statistics import mean
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-06-224951/checkpoint-60000/"
-INITIAL_RESULTS_PATH = "evaluation/output/ultrafeedback_checkpoint_dpo.json"
-OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/ultrafeedback_dpo_teacher_model.json" # Detailed results
-OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/ultrafeedback_dpo_teacher_model_final_responses.json" # New file for just prompt and final response
+INITIAL_RESULTS_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_35000.json"
+OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/extension/ultrafeedback_heldout_teacher_40mini_model.json" # Detailed results
+OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/extension/ultrafeedback_heldout_teacher_model_4omini_final_responses.json" # New file for just prompt and final response
 
 # Nemotron Reward Model configuration
 REWARD_MODEL_API_KEY = os.getenv("REWARD_MODEL_API_KEY", "")
@@ -103,23 +104,24 @@ def generate_and_refine(
         messages = [
             {"role": "user", "content": refinement_instruction}
         ]
+        
+        # try:   
 
-        try:
+        response = client.responses.create(
+            model=TEACHER_MODEL_NAME,
+            input=refinement_instruction
+        )
 
-            response = client.responses.create(
-                model=TEACHER_MODEL_NAME,
-                input=refinement_instruction
-            )
-
-            # print(response.output_text)
-
-            current_response = response.output_text[0]["content"]["text"]
+        # print(response.output_text)
+        # breakpoint()
+        current_response = response.output_text
             # logger.info(f"Iteration {i+1} Refined response:\n{current_response}\n")
 
-
-        except Exception as e:
-            logger.error(f"Error during generation in iteration {i+1}: {e}")
-            break
+        
+        # except Exception as e:
+        #     breakpoint()
+        #     logger.error(f"Error during generation in iteration {i+1}: {e}")
+        #     break
             
     return initial_response, initial_overall_score, current_response 
 
@@ -158,8 +160,8 @@ if __name__ == "__main__":
     teacher_client = OpenAI(api_key=TEACHER_MODEL_API_KEY)
 
     input_df = pd.read_json(INITIAL_RESULTS_PATH, lines=True)
-    prompts = input_df["prompt"].to_list()[:1]
-    responses = input_df["response"].to_list()[:1]
+    prompts = input_df["prompt"].to_list()[:3]
+    responses = input_df["response"].to_list()[:3]
 
     initial_scores = []
     final_scores = []
@@ -205,7 +207,7 @@ if __name__ == "__main__":
 
         final_responses_output.append({
             "prompt": prompt,
-            "response": final_response if score_improved else response
+            "response": new_response if score_improved else initial_response
         })
 
     with open(OUTPUT_ITERATIVE_RESULTS_PATH, 'w') as f:
