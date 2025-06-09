@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-06-224951/checkpoint-60000/"
-INITIAL_RESULTS_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_35000.json"
-OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/extension/ultrafeedback_heldout_teacher_40mini_model.json" # Detailed results
-OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/extension/ultrafeedback_heldout_teacher_model_4omini_final_responses.json" # New file for just prompt and final response
+INITIAL_RESULTS_PATH = "evaluation/input/marielle_test.json"
+OUTPUT_ITERATIVE_RESULTS_PATH = "evaluation/output/extension/marielle_test_long.json" # Detailed results
+OUTPUT_FINAL_RESPONSES_PATH = "evaluation/output/extension/marielle_test_short.json" # New file for just prompt and final response
 
 # Nemotron Reward Model configuration
 REWARD_MODEL_API_KEY = os.getenv("REWARD_MODEL_API_KEY", "")
