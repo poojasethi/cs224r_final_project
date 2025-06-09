@@ -17,8 +17,12 @@ INPUT_JSON_PATH = "evaluation/input/ultrafeedback_heldout_prompt.json"
 # Update below to use the right model.
 # CHECKPOINT_PATH = "./checkpoints/dpo_model_25-06-07-102513/checkpoint-40000/" 
 # CHECKPOINT_PATH = "./checkpoints/sft_model_original/checkpoint-100000/"
-CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-35000/"
-OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_35000.json"
+
+# CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-35000/"
+# OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_35000.json"
+
+CHECKPOINT_PATH = "./checkpoints/sft_model_25-06-08-201600/checkpoint-95000/"
+OUTPUT_JSON_PATH = "evaluation/output/sft/ultrafeedback_heldout_prompts_sft_model_25-06-08-201600_95000.json"
 
 def load_tokenizer_and_model(
     checkpoint_path = CHECKPOINT_PATH     
