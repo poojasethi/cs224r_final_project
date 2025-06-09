@@ -56,10 +56,10 @@ def generate_from_checkpoint(
     model: AutoModelForCausalLM,
     prompt: str,
     max_length: int = 512,
-    max_new_tokens: int = 512,
-    temperature: float = 0.3,
+    max_new_tokens: int = 1024,
+    temperature: float = 0.1,
     top_p: float = 0.9,
-    top_k: int = 20,
+    top_k: int = 50,
     num_beams=1,
     repetition_penalty=1.3,            # Helps avoid tail-end babbling
     no_repeat_ngram_size=2,            # Prevents repeating phrases
