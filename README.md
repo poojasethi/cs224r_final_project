@@ -3,7 +3,7 @@ This is the project for CS224R: Deep Reinforcement Learning. RL Fine-Tuning of L
 
 Feel free to read more about [the class](https://cs224r.stanford.edu/) or [the project](CS224R_Default_Project_Guidelines.pdf).
 
-You can read more about our work in our poster, or in our paper:
+You can read more about our work in our poster or in our paper:
 ![poster](cs224r_poster.png)
 
 ## Create conda environment
@@ -39,6 +39,7 @@ python generate_results_json.py
 
 ## Run extension
 `export REWARD_MODEL_API_KEY=<your_nvidia_api_key>`
+
 `export TEACHER_MODEL_API_KEY=<your_openai_api_key>`
 
 To get Nemotron 70b reward model api key, go [here](https://build.nvidia.com/nvidia/llama-3_1-nemotron-70b-reward).
