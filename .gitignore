@@ -180,4 +180,4 @@ cs224r_aws_key.pem
 sft_model/
 checkpoints/
 hf_cache/
-wandb/
+wandb/*
