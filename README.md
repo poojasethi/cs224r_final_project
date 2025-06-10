@@ -32,19 +32,31 @@ python instruction_following_dpo.py
 ```
 
 ## Generate model results
-Generate sample results from the fine-tuned checkpoint.
+Generate sample results from a fine-tuned checkpoint.
 ```
 python generate_results_json.py
 ```
+
+## Run extension
+`export REWARD_MODEL_API_KEY=<your_nvidia_api_key>`
+`export TEACHER_MODEL_API_KEY=<your_openai_api_key>`
+
+To get Nemotron 70b reward model api key, go [here](https://build.nvidia.com/nvidia/llama-3_1-nemotron-70b-reward).
+To get an OpenAI api key, go [here](https://platform.openai.com/api-keys).
 
 Run self-refinment (edit `INPUT_PATH` to point to your output .json):
 ```
 python generate_results_extension.py
 ``` 
 
-Run teacher-refinement:
+Run teacher-refinement with Qwen 2.5 1.5B Instruct:
 ```
-python generate_results_json.py --use-teacher-model
+python generate_results_extension.py --use-teacher-model
+```
+
+Run teacher-refinement with OpenAI GPT-4o-mini:
+```
+python generate_results_json_openai.py
 ```
 
 ## Code structure
